@@ -5,3 +5,12 @@
 export const RENDERER_PACKAGE = "@planet/renderer";
 
 export { createPlanetMesh, disposePlanetMesh } from "./planetMesh";
+export { createChunkMeshManager } from "./chunkMeshes";
+
+export type {
+  ChunkMeshFrame,
+  ChunkMeshManager,
+  ChunkMeshPayload,
+  ChunkMeshSource,
+  ChunkMeshStats,
+} from "./chunkMeshes";

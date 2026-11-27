@@ -20,6 +20,7 @@ export const DEBUG_CHANNEL_REGISTRY = [
   { id: "terrain", label: "Terrain", lit: true },
   { id: "height", label: "Height", lit: false },
   { id: "slope", label: "Slope", lit: false },
+  { id: "lod", label: "LOD", lit: false },
 ] as const satisfies readonly DebugChannelMeta[];
 
 export type DebugChannelId = (typeof DEBUG_CHANNEL_REGISTRY)[number]["id"];
@@ -55,6 +56,18 @@ const HEIGHT_HIGH: Rgb = [0.96, 0.72, 0.18];
 
 const SLOPE_FLAT: Rgb = [0.08, 0.05, 0.16];
 const SLOPE_STEEP: Rgb = [0.98, 0.82, 0.2];
+
+/** Distinct enough that neighboring levels read as different patches. */
+const LOD_PALETTE: readonly Rgb[] = [
+  [0.86, 0.28, 0.24],
+  [0.92, 0.58, 0.16],
+  [0.93, 0.84, 0.28],
+  [0.42, 0.74, 0.32],
+  [0.22, 0.7, 0.7],
+  [0.28, 0.46, 0.9],
+  [0.56, 0.36, 0.86],
+  [0.86, 0.4, 0.68],
+];
 
 /**
  * Shore width is the smaller of a radius fraction and a slice of the relief.
@@ -109,6 +122,7 @@ export function colorForChannel(
   params: PlanetParams,
   sample: PlanetSample,
   slope: number,
+  lod = 0,
 ): Rgb {
   switch (channel) {
     case "terrain":
@@ -117,6 +131,8 @@ export function colorForChannel(
       return heightColor(params, sample);
     case "slope":
       return slopeColor(slope);
+    case "lod":
+      return LOD_PALETTE[Math.abs(Math.trunc(lod)) % LOD_PALETTE.length] ?? LOD_PALETTE[0];
     default: {
       const unknown: never = channel;
       throw new Error(`Unknown debug channel "${String(unknown)}"`);

@@ -1,6 +1,6 @@
 # Architecture
 
-Current contracts for Planet Engine. Phase 1 adds the height sample, a single-resolution cube sphere, and the debug-channel registry. The chunk protocol, feature-layer interface, global bake, and worker protocol are not contracts yet.
+Current contracts for Planet Engine. Phase 2 adds the chunk quadtree, screen-space LOD selection, and chunk meshes with a floating origin. Workers, the feature-layer interface, and the global bake are not contracts yet.
 
 ## Layout
 
@@ -16,8 +16,8 @@ docs                ARCHITECTURE.md (this file) and PROGRESS.md (handoff notes).
 ## Dependency rules
 
 - `engine` must not import `renderer`, `apps`, React, three.js, or DOM APIs. It must run in Node and in Web Workers. ESLint enforces the import ban, and bans `Math.random` and `Date.now` inside `packages/engine`.
-- `renderer` must not import React or the explorer. It may import engine types only. `createPlanetMesh` uploads a `PlanetMeshData` buffer; it does not sample the planet.
-- `explorer` may import both packages. It owns UI state (zustand) and the leva panel. It calls `createPlanet` / `buildPlanetMesh` and hands the typed arrays to the renderer.
+- `renderer` must not import React or the explorer. It may import engine types only. `createPlanetMesh` and `createChunkMeshManager` upload buffers; they do not sample the planet.
+- `explorer` may import both packages. It owns UI state (zustand) and the leva panel. It calls `createPlanet`, `selectChunks`, and `planet.buildChunk`, and hands the typed arrays to the renderer.
 
 ## Determinism
 
@@ -25,7 +25,7 @@ Engine output is a pure function of `(params, seed, input)`.
 
 - `createPrng(seed)` is mulberry32. State is one uint32. `normalizeSeed` maps finite numbers into that uint32 space (`>>> 0`); non-finite seeds become `0`.
 - `simplex3`, `fbm`, `billow`, `ridgedMultifractal`, `domainWarp`, and `worley` all take that same seed. Permutation tables are cached per seed. The cache is a pure function of the seed, so call order does not change results.
-- `createPlanet(params).sample(dir)` and `buildPlanetMesh` use that noise. Tests lock identical output for identical inputs, including an inline snapshot of one sample.
+- `createPlanet(params).sample(dir)`, `buildPlanetMesh`, and `planet.buildChunk` use that noise. Tests lock identical output for identical inputs, including an inline snapshot of one sample. `selectChunks` is a pure function of the camera, radius, and screen parameters.
 - `createPlanet` copies and freezes `params`, so later edits to the caller's object do not change the planet.
 
 ## Units
@@ -74,7 +74,7 @@ Fractal options are `octaves` (1–16, default 4), `lacunarity` (default 2), `ga
 
 - `dir` is a 3D direction. It is normalized before sampling, so the vector length does not matter. A zero vector throws.
 - Height is layered fBm at that unit direction, multiplied by `amplitude`. The sample never uses latitude/longitude, so there is no seam at the antimeridian and no pinch at the poles.
-- Temperature, moisture, biome, and `buildChunk` are not on this object yet.
+- `Planet.buildChunk(request)` samples that same field. Temperature, moisture, and biome are not on the sample yet.
 
 ## Cube sphere
 
@@ -82,7 +82,7 @@ Fractal options are `octaves` (1–16, default 4), `lacunarity` (default 2), `ga
 
 - One resolution, `PLANET_MESH_SEGMENTS` (128). The optional `segments` argument exists so tests can build a small grid. There is no LOD.
 - The sphere is a spherified cube (Nowell's map), not a normalized cube, so face quads stay roughly even. The map is continuous: vertices duplicated along a cube edge are the same point.
-- Each vertex is displaced to `direction * (1 + height / radius)`. Dividing by radius keeps the float32 buffer near unit length instead of storing raw meter-scale positions. The explorer orbits that unit sphere. Phase 2 replaces this single mesh with chunk-local meter offsets and a floating origin.
+- Each vertex is displaced to `direction * (1 + height / radius)`. Dividing by radius keeps the float32 buffer near unit length instead of storing raw meter-scale positions. The explorer no longer draws this mesh; it draws chunk meshes. The function remains for tests and for a single-resolution bake.
 - Normals are finite differences on that displaced sphere, not averages of mesh faces. Slope is the angle between the normal and the radial direction.
 - Colors come from the selected debug channel.
 
@@ -95,23 +95,40 @@ Fractal options are `octaves` (1–16, default 4), `lacunarity` (default 2), `ga
 | terrain | Terrain | ocean, shore, land, high ground from sea-relative height | yes |
 | height  | Height  | sea-relative height ramp                                 | no  |
 | slope   | Slope   | slope-angle ramp                                         | no  |
+| lod     | LOD     | one flat color per chunk level                           | no  |
 
 The shore band is the smaller of a radius fraction and a slice of the amplitude, so the coastline stays visible from orbit without swallowing the lowlands. Data channels are unlit so lighting does not hide the ramp.
 
+## Chunks and LOD
+
+One quadtree per cube face. `ChunkRequest` is `{ face, lod, x, y }`. Face order matches the cube sphere: `+X, -X, +Y, -Y, +Z, -Z`. `x` and `y` are tile coordinates in `[0, 2^lod)`.
+
+`CHUNK_GRID_SIZE` is 33 (32 quads along an edge). `planet.buildChunk(request)` returns:
+
+- `positions`, `normals`: chunk-local meters and unit normals. The center grid vertex is the origin, so positions stay small at high LOD.
+- `height`, `seaRelativeHeight`, `slope`: one value per vertex, including skirt vertices copied from the edge they hang from.
+- `indices`, `origin` (planet-centered meters, float64), and `boundingRadius`.
+
+Skirts are a ring of vertices pulled toward the planet center. Their depth scales with the chunk edge and with `amplitude * noiseScale`, and is capped at a quarter of the edge so a steep gradient cannot pull the skirt through the planet.
+
+`selectChunks` returns the leaves that should exist this frame, nearest camera first. A chunk splits while one grid step projects to more than `DEFAULT_PIXEL_ERROR` (4) pixels and the patch can meet the view cone (the tighter of the field of view and the horizon). Chunks entirely outside that cone stay coarse, so the cover is still complete and the budget is spent on the visible surface. Edge neighbors, including across cube faces, stay within `MAX_LOD_GAP` (1). The distance test uses the mean sphere of `radius`. `relief` is accepted and checked, and is not added to every bounding sphere: doing that forced a max-LOD disk the size of the amplitude.
+
+Generation stays behind `ChunkMeshSource` in the renderer. The explorer's `createPlanetChunkSource` calls `buildChunk` on the main thread and returns the payload directly. A worker can return a `Promise` of the same payload; `createChunkMeshManager` already accepts either, and nothing else in the scene has to change.
+
+The manager keeps at most `buildsPerFrame` new meshes per call (default 32) unless fewer than eight are missing, so a view can fill in without building the whole selection in one frame. The first shell still appears together. Selection order is nearest first, so the foreground arrives before the hidden chunks. It drops meshes that leave the selection. A `cacheKey` change (params or debug channel) throws the set away. Frustum and horizon tests set `mesh.visible`. The horizon occluder is `max(radius * 0.5, radius - relief)` so a mountain can still peek over the limb. Chunk vertices are not transformed by a large planet matrix: each mesh sits at `origin - camera`, both subtracted in float64, and the camera stays at the scene origin.
+
 ## Coordinates and precision
 
-Units are meters. Phase 1 mesh positions are planet-centered and divided by radius, as described above. When chunks arrive, vertices stay chunk-local and the scene uses a floating origin. Do not feed raw float32 world positions into planet-scale meshes.
+Units are meters. The Phase 1 helper mesh is still planet-centered and divided by radius. Chunk vertices are chunk-local meters, and the explorer re-centers the scene on the camera every frame. Do not feed raw float32 world positions into planet-scale meshes.
 
 ## Not a contract yet
 
 Do not invent these until the phase that needs them, and do not change them later without a note in `docs/PROGRESS.md`:
 
-- `Planet.buildChunk`
-- chunk request `{ face, lod, x, y }` and chunk typed arrays
 - feature-layer interface
 - global bake and worker protocol
 
-Workers, when they arrive, must be constructed as `new Worker(new URL("./x.worker.ts", import.meta.url), { type: "module" })` so Vite bundles them. Do not use `SharedArrayBuffer` unless a later phase needs it. If it is added, COOP/COEP headers go in `vercel.json` at that point.
+The worker shape is fixed even though the pool is not: `ChunkMeshSource.buildChunk` may return a payload or a promise of one. Workers, when they arrive, must be constructed as `new Worker(new URL("./x.worker.ts", import.meta.url), { type: "module" })` so Vite bundles them. Do not use `SharedArrayBuffer` unless a later phase needs it. If it is added, COOP/COEP headers go in `vercel.json` at that point.
 
 Collision must sample the engine height function. Rivers must come from the global bake.
 

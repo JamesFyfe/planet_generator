@@ -27,6 +27,47 @@ const CUBE_FACES: readonly CubeFace[] = [
   { n: [0, 0, -1], u: [-1, 0, 0], v: [0, 1, 0] },
 ];
 
+/** One quadtree per cube face. Face 0 is +X, then -X, +Y, -Y, +Z, -Z. */
+export const CUBE_FACE_COUNT = CUBE_FACES.length;
+
+export type CubeFaceIndex = 0 | 1 | 2 | 3 | 4 | 5;
+
+function cubeFace(face: number): CubeFace {
+  if (!Number.isInteger(face) || face < 0 || face >= CUBE_FACE_COUNT) {
+    throw new Error(`cube face must be an integer from 0 to ${CUBE_FACE_COUNT - 1}`);
+  }
+  const entry = CUBE_FACES[face];
+  if (!entry) throw new Error(`Missing cube face ${face}`);
+  return entry;
+}
+
+/** Cube-face point with `u` and `v` in [-1, 1], before spherification. */
+export function cubeFacePoint(face: number, u: number, v: number): Vec3 {
+  return facePoint(cubeFace(face), u, v);
+}
+
+/** Inverse of {@link cubeFacePoint} for a point on that face. */
+export function cubeFaceUv(face: number, point: Vec3): { u: number; v: number } {
+  const entry = cubeFace(face);
+  return {
+    u: point.x * entry.u[0] + point.y * entry.u[1] + point.z * entry.u[2],
+    v: point.x * entry.v[0] + point.y * entry.v[1] + point.z * entry.v[2],
+  };
+}
+
+/**
+ * Face whose axis is the dominant component. Used to step off a shared edge
+ * onto the neighboring face; callers should not pass the origin.
+ */
+export function cubeFaceIndex(point: Vec3): CubeFaceIndex {
+  const ax = Math.abs(point.x);
+  const ay = Math.abs(point.y);
+  const az = Math.abs(point.z);
+  if (ax >= ay && ax >= az) return point.x >= 0 ? 0 : 1;
+  if (ay >= ax && ay >= az) return point.y >= 0 ? 2 : 3;
+  return point.z >= 0 ? 4 : 5;
+}
+
 export interface PlanetMeshData {
   positions: Float32Array;
   normals: Float32Array;
