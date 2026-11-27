@@ -38,6 +38,9 @@ importers:
       '@planet/engine':
         specifier: workspace:*
         version: link:../../packages/engine
+      '@planet/renderer':
+        specifier: workspace:*
+        version: link:../../packages/renderer
       '@react-three/drei':
         specifier: ^10.7.9
         version: 10.7.9(@react-three/fiber@9.8.2(@types/react@19.3.3)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(three@0.187.0))(@types/react@19.3.3)(@types/three@0.187.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(three@0.187.0)
@@ -95,7 +98,17 @@ importers:
         version: 5.1.2(@types/node@26.6.11)(vite@8.4.0(@types/node@26.6.11))
 
   packages/renderer:
+    dependencies:
+      '@planet/engine':
+        specifier: workspace:*
+        version: link:../engine
+      three:
+        specifier: ^0.187.0
+        version: 0.187.0
     devDependencies:
+      '@types/three':
+        specifier: ^0.187.0
+        version: 0.187.0
       typescript:
         specifier: ^5.9.3
         version: 5.9.3

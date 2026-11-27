@@ -25,6 +25,27 @@ describe("controlsFromRegistry", () => {
       step: 0.1,
       label: "Noise scale",
     });
-    expect(Object.keys(groups)).toEqual(["World", "Noise"]);
+    expect(groups.Noise?.octaves).toEqual({
+      value: 5,
+      min: 1,
+      max: 8,
+      step: 1,
+      label: "Octaves",
+    });
+    expect(groups.Noise?.amplitude).toEqual({
+      value: 3_000,
+      min: 0,
+      max: 20_000,
+      step: 100,
+      label: "Amplitude (m)",
+    });
+    expect(groups.Surface?.seaLevel).toEqual({
+      value: 0,
+      min: -10_000,
+      max: 10_000,
+      step: 100,
+      label: "Sea level (m)",
+    });
+    expect(Object.keys(groups)).toEqual(["World", "Noise", "Surface"]);
   });
 });

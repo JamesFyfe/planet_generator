@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@planet/engine": "workspace:*",
+    "@planet/renderer": "workspace:*",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
     "leva": "^0.10.1",
