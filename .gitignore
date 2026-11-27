@@ -1,1 +1,8 @@
+node_modules/
+dist/
+coverage/
+.vite/
+.vercel/
+*.local
+.DS_Store
 PROMPTS.md
