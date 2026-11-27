@@ -5,6 +5,17 @@ import { ParamsPanel } from "./ParamsPanel";
 import { ParamsReadout } from "./ParamsReadout";
 import { PlaceholderBody } from "./PlaceholderBody";
 
+// The default number box is 38px, which clips to four digits. Seed goes to
+// 1_000_000 and radius to 500_000, so the box has to hold seven digits.
+// The panel is a little wider so labels such as "Noise scale" are not cut off.
+const panelTheme = {
+  sizes: {
+    rootWidth: "340px",
+    controlWidth: "200px",
+    numberInputMinWidth: "76px",
+  },
+};
+
 export function App() {
   return (
     <>
@@ -17,7 +28,7 @@ export function App() {
           <OrbitControls enableDamping />
         </Canvas>
       </div>
-      <Leva titleBar={{ title: "Planet" }} />
+      <Leva theme={panelTheme} titleBar={{ title: "Planet" }} />
       <ParamsPanel />
       <ParamsReadout />
     </>

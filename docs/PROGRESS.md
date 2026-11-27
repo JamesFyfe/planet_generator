@@ -6,10 +6,20 @@
 
 Engine: mulberry32 PRNG, seeded 3D simplex, fBm, ridged multifractal, billow, domain warp, and Worley. All take a seed. Tests cover determinism, ranges, and seed changes. Parameter registry has `seed`, `radius` (meters, 5 km–500 km, default 50 km), and `noiseScale`. `PlanetParams.version` is 1.
 
-Explorer: Vite + React + R3F unit sphere, orbit controls, zustand store, leva panel generated from the registry, and a readout of the store. Engine and renderer are imported from source. No `vercel.json`.
+Explorer: Vite + React + R3F unit sphere, orbit controls, zustand store, leva panel generated from the registry, and a readout of the store. The engine is imported from source. The renderer package is reserved and not imported yet. No `vercel.json`.
 
 **Unfinished.** No terrain, LOD, chunks, workers, atmosphere, or renderer meshes. `noiseScale` is stored and not sampled. `Planet`, chunk request/response, and the feature-layer interface are intentionally undefined.
 
 **Known issues.** The placeholder mesh is unit-sized so orbit controls have a stable target; radius is not applied to geometry yet. Simplex permutations are cached for the process lifetime; results do not depend on call order. Vercel still needs the dashboard checkbox that includes source files outside `apps/explorer`. The production JS chunk is about 1.3 MB (about 386 KB gzip) because three.js ships in the first load. drei logs a `THREE.Clock` deprecation warning from three r187; it does not affect the placeholder.
 
 **Next.** Phase 1: single-resolution cube-sphere displaced by layered noise, sea level, height-based color, flat normals, and a debug-view channel switch.
+
+## 2026-11-27 — Phase 0 review fixes
+
+**Changed.** Worley grows its search shell until the second-nearest feature point cannot lie farther out. A fixed 3×3×3 reported a too-large `f2` on some samples. The simplex seed test now checks negative and non-finite seeds against `normalizeSeed`. Leva number boxes are wide enough for a 7-digit seed and a 6-digit radius in meters, and the panel is wide enough for the "Noise scale" label. CI runs `pnpm build` after `pnpm check`.
+
+**Unfinished.** Same as the scaffold note. Radius stays in meters on the slider; the number box is wider so 500000 fits.
+
+**Known issues.** Unchanged, apart from the Worley neighborhood and the clipped slider text, which are fixed.
+
+**Next.** Phase 1, as above.
