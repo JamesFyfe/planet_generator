@@ -1,6 +1,6 @@
 # Architecture
 
-Current contracts for Planet Engine. Phase 0 defines the workspace, the noise helpers, and the parameter registry. The planet object, chunk protocol, and feature-layer interface are not contracts yet.
+Current contracts for Planet Engine. Phase 1 adds the height sample, a single-resolution cube sphere, and the debug-channel registry. The chunk protocol, feature-layer interface, global bake, and worker protocol are not contracts yet.
 
 ## Layout
 
@@ -16,8 +16,8 @@ docs                ARCHITECTURE.md (this file) and PROGRESS.md (handoff notes).
 ## Dependency rules
 
 - `engine` must not import `renderer`, `apps`, React, three.js, or DOM APIs. It must run in Node and in Web Workers. ESLint enforces the import ban, and bans `Math.random` and `Date.now` inside `packages/engine`.
-- `renderer` must not import React or the explorer. It may import engine types only. Phase 0 does not import the engine yet, because no mesh API exists.
-- `explorer` may import both packages. It owns UI state (zustand) and the leva panel.
+- `renderer` must not import React or the explorer. It may import engine types only. `createPlanetMesh` uploads a `PlanetMeshData` buffer; it does not sample the planet.
+- `explorer` may import both packages. It owns UI state (zustand) and the leva panel. It calls `createPlanet` / `buildPlanetMesh` and hands the typed arrays to the renderer.
 
 ## Determinism
 
@@ -25,29 +25,33 @@ Engine output is a pure function of `(params, seed, input)`.
 
 - `createPrng(seed)` is mulberry32. State is one uint32. `normalizeSeed` maps finite numbers into that uint32 space (`>>> 0`); non-finite seeds become `0`.
 - `simplex3`, `fbm`, `billow`, `ridgedMultifractal`, `domainWarp`, and `worley` all take that same seed. Permutation tables are cached per seed. The cache is a pure function of the seed, so call order does not change results.
-- Tests lock identical output for identical inputs, range bounds, and that a different seed changes the output. Inline snapshots lock a few sample values so the algorithms cannot drift silently.
+- `createPlanet(params).sample(dir)` and `buildPlanetMesh` use that noise. Tests lock identical output for identical inputs, including an inline snapshot of one sample.
+- `createPlanet` copies and freezes `params`, so later edits to the caller's object do not change the planet.
 
 ## Units
 
 Meters. Do not hardcode planet radius, sea level, or any other value that has a parameter. The radius slider is the build plan's range: 5 km to 500 km, default 50 km, stored as meters (`5000`, `500000`, `50000`).
 
+`sample` height is meters of radial displacement from `params.radius`. Amplitude is applied once inside `sample`. The mesh adds that height to the radius; it does not multiply by amplitude again.
+
 ## Parameters
 
 `PLANET_PARAM_REGISTRY` in `@planet/engine` is the only slider list. Each entry has `key`, `label`, `min`, `max`, `default`, `step`, and `group`.
 
-`PlanetParams` is `{ version, seed, radius, noiseScale }`. `version` is `PLANET_PARAMS_VERSION` (`1`) and is not a slider. `defaultPlanetParams()` builds the object from the registry. `clampPlanetParam` enforces min and max. The explorer store writes through that clamp.
+`PlanetParams` is `{ version, seed, radius, noiseScale, octaves, amplitude, seaLevel }`. `version` is `PLANET_PARAMS_VERSION` (`2`) and is not a slider. Version moved from 1 to 2 when the terrain fields joined the object. `defaultPlanetParams()` builds the object from the registry. `clampPlanetParam` enforces min and max. The explorer store writes through that clamp.
 
-The leva panel is generated from the registry (`controlsFromRegistry`). Do not hand-write a slider for a registered parameter.
+The leva panel is generated from the registry (`controlsFromRegistry`). Do not hand-write a slider for a registered parameter. The debug-view dropdown is not a planet parameter; it is a view setting driven by `DEBUG_CHANNEL_REGISTRY`.
 
-Phase 0 placeholders:
+| key        | group   | range                         | default |
+| ---------- | ------- | ----------------------------- | ------- |
+| seed       | World   | 0 – 1_000_000, step 1         | 1       |
+| radius     | World   | 5_000 – 500_000 m, step 1_000 | 50_000  |
+| noiseScale | Noise   | 0.1 – 10, step 0.1            | 1       |
+| octaves    | Noise   | 1 – 8, step 1                 | 5       |
+| amplitude  | Noise   | 0 – 20_000 m, step 100        | 3_000   |
+| seaLevel   | Surface | -10_000 – 10_000 m, step 100  | 0       |
 
-| key        | group | range                         | default |
-| ---------- | ----- | ----------------------------- | ------- |
-| seed       | World | 0 – 1_000_000, step 1         | 1       |
-| radius     | World | 5_000 – 500_000 m, step 1_000 | 50_000  |
-| noiseScale | Noise | 0.1 – 10, step 0.1            | 1       |
-
-`noiseScale` is stored and shown. Nothing samples terrain with it yet.
+`noiseScale` is the fBm frequency on the unit sphere. `octaves` is rounded to an integer before sampling because fBm requires a whole octave count. `amplitude` is the meter scale of the noise (about [-amplitude, amplitude]). `seaLevel` is meters in that same height space. Sea-relative height is `height - seaLevel`.
 
 ## Noise
 
@@ -62,26 +66,54 @@ All functions are exported from `@planet/engine`.
 | `domainWarp(seed, x, y, z, options?)`         | input point plus a simplex displacement                   |
 | `worley(seed, x, y, z)`                       | `{ f1, f2 }` Euclidean distances, one point per unit cell |
 
-Fractal options are `octaves` (1–16, default 4), `lacunarity` (default 2), `gain` (default 0.5), and `frequency` (default 1). Domain warp options are `amplitude` (default 1) and `frequency` (default 1). Worley has no frequency argument; scale the coordinates instead. The search starts with the query cell and grows one Chebyshev shell at a time until the next shell cannot contain a closer second neighbor. The octave cap exists so a bad value cannot request an unbounded sample loop.
+Fractal options are `octaves` (1–16, default 4), `lacunarity` (default 2), `gain` (default 0.5), and `frequency` (default 1). Domain warp options are `amplitude` (default 1) and `frequency` (default 1). Worley has no frequency argument; scale the coordinates instead. The search starts with the query cell and grows one Chebyshev shell at a time until the next shell cannot contain a closer second neighbor. The octave cap exists so a bad value cannot request an unbounded sample loop. The terrain slider stops at 8, under that cap.
+
+## Planet sample
+
+`createPlanet(params)` returns a `Planet`. `Planet.sample(dir)` returns `{ height, seaRelativeHeight }`.
+
+- `dir` is a 3D direction. It is normalized before sampling, so the vector length does not matter. A zero vector throws.
+- Height is layered fBm at that unit direction, multiplied by `amplitude`. The sample never uses latitude/longitude, so there is no seam at the antimeridian and no pinch at the poles.
+- Temperature, moisture, biome, and `buildChunk` are not on this object yet.
+
+## Cube sphere
+
+`buildPlanetMesh(planet, channel, segments?)` returns `PlanetMeshData`: `positions`, `normals`, `colors`, `indices`, and `lit`.
+
+- One resolution, `PLANET_MESH_SEGMENTS` (128). The optional `segments` argument exists so tests can build a small grid. There is no LOD.
+- The sphere is a spherified cube (Nowell's map), not a normalized cube, so face quads stay roughly even. The map is continuous: vertices duplicated along a cube edge are the same point.
+- Each vertex is displaced to `direction * (1 + height / radius)`. Dividing by radius keeps the float32 buffer near unit length instead of storing raw meter-scale positions. The explorer orbits that unit sphere. Phase 2 replaces this single mesh with chunk-local meter offsets and a floating origin.
+- Normals are finite differences on that displaced sphere, not averages of mesh faces. Slope is the angle between the normal and the radial direction.
+- Colors come from the selected debug channel.
+
+## Debug channels
+
+`DEBUG_CHANNEL_REGISTRY` is the list of color outputs. `isDebugChannelId` guards the dropdown.
+
+| id      | label   | coloring                                                 | lit |
+| ------- | ------- | -------------------------------------------------------- | --- |
+| terrain | Terrain | ocean, shore, land, high ground from sea-relative height | yes |
+| height  | Height  | sea-relative height ramp                                 | no  |
+| slope   | Slope   | slope-angle ramp                                         | no  |
+
+The shore band is the smaller of a radius fraction and a slice of the amplitude, so the coastline stays visible from orbit without swallowing the lowlands. Data channels are unlit so lighting does not hide the ramp.
 
 ## Coordinates and precision
 
-Units are meters. When planet geometry arrives, chunk vertices stay chunk-local and the scene uses a floating origin. Do not feed raw float32 world positions into planet-scale meshes.
-
-The Phase 0 explorer draws a **unit** sphere on purpose. A 50 km radius would be the wrong camera target, and the real radius must come from `PlanetParams` rather than a hardcoded mesh size. Orbit controls target that unit sphere. Seed tints the material so the store is visible; it is not a terrain debug view.
+Units are meters. Phase 1 mesh positions are planet-centered and divided by radius, as described above. When chunks arrive, vertices stay chunk-local and the scene uses a floating origin. Do not feed raw float32 world positions into planet-scale meshes.
 
 ## Not a contract yet
 
 Do not invent these until the phase that needs them, and do not change them later without a note in `docs/PROGRESS.md`:
 
-- `createPlanet`, `Planet.sample`, `Planet.buildChunk`
+- `Planet.buildChunk`
 - chunk request `{ face, lod, x, y }` and chunk typed arrays
 - feature-layer interface
 - global bake and worker protocol
 
 Workers, when they arrive, must be constructed as `new Worker(new URL("./x.worker.ts", import.meta.url), { type: "module" })` so Vite bundles them. Do not use `SharedArrayBuffer` unless a later phase needs it. If it is added, COOP/COEP headers go in `vercel.json` at that point.
 
-Collision, rivers, and debug channels are later phases. Collision must sample the engine height function. Rivers must come from the global bake.
+Collision must sample the engine height function. Rivers must come from the global bake.
 
 ## Deployment
 

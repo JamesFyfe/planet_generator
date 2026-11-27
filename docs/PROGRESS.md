@@ -23,3 +23,19 @@ Explorer: Vite + React + R3F unit sphere, orbit controls, zustand store, leva pa
 **Known issues.** Unchanged, apart from the Worley neighborhood and the clipped slider text, which are fixed.
 
 **Next.** Phase 1, as above.
+
+## 2026-11-27 — Phase 1 sphere and noise displacement
+
+**Changed.** `PlanetParams` is version 2. The registry now includes `octaves`, `amplitude` (meters), and `seaLevel` (meters), beside the existing `noiseScale`. `createPlanet(params).sample(dir)` returns height and sea-relative height from fBm at the unit-sphere direction. Amplitude is applied once inside `sample`.
+
+`buildPlanetMesh` builds one spherified cube (`PLANET_MESH_SEGMENTS` = 128) as typed arrays: positions, finite-difference normals, channel colors, and indices. Positions are planet-centered and divided by radius (`1 + height / radius`) so the buffer stays near unit length. The explorer orbits that mesh. Debug channels are `terrain`, `height`, and `slope`; the dropdown is generated from `DEBUG_CHANNEL_REGISTRY`. Terrain is lit; the data channels are unlit.
+
+Screenshots, default settings except the seed: `docs/screenshots/phase-1/seed-1-terrain.png`, `seed-42-terrain.png`, `seed-1-height.png`, `seed-1-slope.png`.
+
+Merged `d36bc5a` (Worley shell search, leva number-box width, CI `pnpm build`). The height field does not call Worley, so samples are unchanged. `App.tsx` keeps that panel theme so the new sliders do not clip seed or radius again.
+
+**Unfinished.** No chunks, LOD, workers, floating origin, biomes, or `buildChunk`. Generation still runs on the main thread. The whole planet is one mesh.
+
+**Known issues.** A full rebuild is about 200 ms, so slider drags are debounced by 80 ms and the mesh updates when the drag pauses. At high noise scale the grid is coarser than the noise, and cube-face edges show up as aliasing rather than a crack in `sample`. Coastlines are stair-stepped at this resolution. Amplitude can exceed radius at the slider extremes and pull the surface through the center. The shore band is a small fraction of radius and amplitude so it reads from orbit; it is not a physical beach width. The checked-in screenshots were taken before the panel theme merge, so their radius box still shows four digits. drei still logs the `THREE.Clock` deprecation from three r187.
+
+**Next.** Phase 2: quadtree chunks, worker generation, skirts, and a floating origin with chunk-local positions.

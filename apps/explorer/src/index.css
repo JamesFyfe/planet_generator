@@ -32,3 +32,27 @@ body,
 .params-readout strong {
   font-weight: 600;
 }
+
+.debug-view {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  background: rgba(8, 12, 24, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.debug-view select {
+  font: inherit;
+  color: #e8eefc;
+  background: #12182c;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  padding: 4px 6px;
+}

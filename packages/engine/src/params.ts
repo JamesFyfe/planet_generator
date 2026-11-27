@@ -1,4 +1,4 @@
-export const PLANET_PARAMS_VERSION = 1;
+export const PLANET_PARAMS_VERSION = 2;
 
 export interface ParamMeta {
   key: string;
@@ -13,7 +13,8 @@ export interface ParamMeta {
 /**
  * Slider metadata is the only source for planet parameters. The explorer
  * builds its panel from this list; do not add a parallel set of controls.
- * Radius is meters. 50 km is the default, with the plan's 5 km–500 km range.
+ * Radius, amplitude, and sea level are meters. 50 km is the default radius,
+ * with the plan's 5 km–500 km range. Octaves stay under the fBm cap of 16.
  */
 export const PLANET_PARAM_REGISTRY = [
   {
@@ -42,6 +43,33 @@ export const PLANET_PARAM_REGISTRY = [
     default: 1,
     step: 0.1,
     group: "Noise",
+  },
+  {
+    key: "octaves",
+    label: "Octaves",
+    min: 1,
+    max: 8,
+    default: 5,
+    step: 1,
+    group: "Noise",
+  },
+  {
+    key: "amplitude",
+    label: "Amplitude (m)",
+    min: 0,
+    max: 20_000,
+    default: 3_000,
+    step: 100,
+    group: "Noise",
+  },
+  {
+    key: "seaLevel",
+    label: "Sea level (m)",
+    min: -10_000,
+    max: 10_000,
+    default: 0,
+    step: 100,
+    group: "Surface",
   },
 ] as const satisfies readonly ParamMeta[];
 

@@ -9,11 +9,14 @@ import {
 } from "./index";
 
 describe("planet parameter registry", () => {
-  it("exposes only the phase 0 placeholders", () => {
+  it("lists the phase 1 terrain parameters", () => {
     expect(PLANET_PARAM_REGISTRY.map((param) => param.key)).toEqual([
       "seed",
       "radius",
       "noiseScale",
+      "octaves",
+      "amplitude",
+      "seaLevel",
     ]);
   });
 
@@ -44,10 +47,13 @@ describe("planet parameter registry", () => {
     const params = defaultPlanetParams();
     expect(params.version).toBe(PLANET_PARAMS_VERSION);
     expect(params).toEqual({
-      version: 1,
+      version: 2,
       seed: 1,
       radius: 50_000,
       noiseScale: 1,
+      octaves: 5,
+      amplitude: 3_000,
+      seaLevel: 0,
     });
     expect(JSON.parse(JSON.stringify(params))).toEqual(params);
   });
@@ -57,7 +63,13 @@ describe("planet parameter registry", () => {
     expect(clampPlanetParam("radius", 9_000_000)).toBe(500_000);
     expect(clampPlanetParam("noiseScale", 2.5)).toBe(2.5);
     expect(clampPlanetParam("seed", Number.NaN)).toBe(1);
+    expect(clampPlanetParam("amplitude", -10)).toBe(0);
+    expect(clampPlanetParam("amplitude", 50_000)).toBe(20_000);
+    expect(clampPlanetParam("seaLevel", 250)).toBe(250);
+    expect(clampPlanetParam("octaves", 0)).toBe(1);
+    expect(clampPlanetParam("octaves", 40)).toBe(8);
     expect(isPlanetParamKey("radius")).toBe(true);
-    expect(isPlanetParamKey("seaLevel")).toBe(false);
+    expect(isPlanetParamKey("seaLevel")).toBe(true);
+    expect(isPlanetParamKey("biome")).toBe(false);
   });
 });
