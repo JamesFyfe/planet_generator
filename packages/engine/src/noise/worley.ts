@@ -23,37 +23,75 @@ function hashUnit(seed: number, x: number, y: number, z: number): number {
   return h / 4294967296;
 }
 
+/** The one feature point inside integer cell (cx, cy, cz). */
+export function worleyFeaturePoint(
+  seed: number,
+  cx: number,
+  cy: number,
+  cz: number,
+): readonly [number, number, number] {
+  const base = normalizeSeed(seed);
+  return [
+    cx + hashUnit(base, cx, cy, cz),
+    cy + hashUnit(base + 1, cx, cy, cz),
+    cz + hashUnit(base + 2, cx, cy, cz),
+  ];
+}
+
+function consider(best: WorleyResult, distance: number): void {
+  if (distance < best.f1) {
+    best.f2 = best.f1;
+    best.f1 = distance;
+  } else if (distance < best.f2) {
+    best.f2 = distance;
+  }
+}
+
+/** Visit cells whose Chebyshev distance from the query cell is `radius`. */
+function scanShell(
+  seed: number,
+  x: number,
+  y: number,
+  z: number,
+  ix: number,
+  iy: number,
+  iz: number,
+  radius: number,
+  best: WorleyResult,
+): void {
+  for (let dz = -radius; dz <= radius; dz++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz)) !== radius) continue;
+        const [px, py, pz] = worleyFeaturePoint(seed, ix + dx, iy + dy, iz + dz);
+        consider(best, Math.hypot(x - px, y - py, z - pz));
+      }
+    }
+  }
+}
+
 /**
  * 3D Worley (cellular) noise with one feature point per unit cell.
  * Callers scale coordinates themselves when they want a different cell size.
+ *
+ * A fixed 3×3×3 misses the second neighbor when that point sits in the next
+ * shell and the inner points are all farther away. Shells grow until the
+ * closest point the next shell could contain is at least as far as f2.
  */
 export function worley(seed: number, x: number, y: number, z: number): WorleyResult {
   const ix = Math.floor(x);
   const iy = Math.floor(y);
   const iz = Math.floor(z);
-  const base = normalizeSeed(seed);
-  let f1 = Number.POSITIVE_INFINITY;
-  let f2 = Number.POSITIVE_INFINITY;
+  const best: WorleyResult = { f1: Number.POSITIVE_INFINITY, f2: Number.POSITIVE_INFINITY };
+  // Distance from the query to the nearest face of the next unsearched shell.
+  const inset = Math.min(x - ix, ix + 1 - x, y - iy, iy + 1 - y, z - iz, iz + 1 - z);
 
-  for (let dz = -1; dz <= 1; dz++) {
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const cx = ix + dx;
-        const cy = iy + dy;
-        const cz = iz + dz;
-        const px = cx + hashUnit(base, cx, cy, cz);
-        const py = cy + hashUnit(base + 1, cx, cy, cz);
-        const pz = cz + hashUnit(base + 2, cx, cy, cz);
-        const distance = Math.hypot(x - px, y - py, z - pz);
-        if (distance < f1) {
-          f2 = f1;
-          f1 = distance;
-        } else if (distance < f2) {
-          f2 = distance;
-        }
-      }
-    }
+  let radius = 0;
+  scanShell(seed, x, y, z, ix, iy, iz, radius, best);
+  while (best.f2 > radius + inset) {
+    radius += 1;
+    scanShell(seed, x, y, z, ix, iy, iz, radius, best);
   }
 
-  return { f1, f2 };
+  return best;
 }
