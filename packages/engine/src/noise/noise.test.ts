@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { billow, domainWarp, fbm, ridgedMultifractal, simplex3, worley } from "../index";
+import {
+  billow,
+  createPrng,
+  domainWarp,
+  fbm,
+  ridgedMultifractal,
+  simplex3,
+  worley,
+} from "../index";
+import { worleyFeaturePoint } from "./worley";
 
 function sampleGrid(): Array<[number, number, number]> {
   const points: Array<[number, number, number]> = [];
@@ -40,7 +49,8 @@ describe("simplex3", () => {
 
   it("coerces the seed the same way as the PRNG", () => {
     expect(simplex3(1.9, 0.2, 0.4, 0.6)).toBe(simplex3(1, 0.2, 0.4, 0.6));
-    expect(simplex3(-3, 0.2, 0.4, 0.6)).toBe(simplex3(-3, 0.2, 0.4, 0.6));
+    expect(simplex3(-3, 0.2, 0.4, 0.6)).toBe(simplex3(-3 >>> 0, 0.2, 0.4, 0.6));
+    expect(simplex3(Number.NaN, 0.2, 0.4, 0.6)).toBe(simplex3(0, 0.2, 0.4, 0.6));
     expect(simplex3(-3, 0.2, 0.4, 0.6)).not.toBe(simplex3(3, 0.2, 0.4, 0.6));
   });
 
@@ -125,10 +135,40 @@ describe("domainWarp", () => {
   });
 });
 
+function wideWorley(
+  seed: number,
+  x: number,
+  y: number,
+  z: number,
+  radius: number,
+): { f1: number; f2: number } {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const iz = Math.floor(z);
+  let f1 = Number.POSITIVE_INFINITY;
+  let f2 = Number.POSITIVE_INFINITY;
+  for (let dz = -radius; dz <= radius; dz++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        const [px, py, pz] = worleyFeaturePoint(seed, ix + dx, iy + dy, iz + dz);
+        const distance = Math.hypot(x - px, y - py, z - pz);
+        if (distance < f1) {
+          f2 = f1;
+          f1 = distance;
+        } else if (distance < f2) {
+          f2 = distance;
+        }
+      }
+    }
+  }
+  return { f1, f2 };
+}
+
 describe("worley", () => {
   it("is deterministic and seed-dependent", () => {
     expect(worley(1, 0.2, 0.4, 0.6)).toEqual(worley(1, 0.2, 0.4, 0.6));
     expect(worley(1, 0.2, 0.4, 0.6)).not.toEqual(worley(2, 0.2, 0.4, 0.6));
+    expect(worley(-3, 0.2, 0.4, 0.6)).toEqual(worley(-3 >>> 0, 0.2, 0.4, 0.6));
     expect(worley(1, 0.1, 0.2, 0.3)).toMatchInlineSnapshot(`
       {
         "f1": 0.41365112125908826,
@@ -137,7 +177,7 @@ describe("worley", () => {
     `);
   });
 
-  it("keeps F1 and F2 in the 3x3x3 neighborhood bound", () => {
+  it("keeps F1 and F2 ordered and finite", () => {
     for (const [x, y, z] of GRID) {
       const { f1, f2 } = worley(11, x, y, z);
       expect(f1).toBeGreaterThanOrEqual(0);
@@ -146,6 +186,29 @@ describe("worley", () => {
       expect(f2).toBeLessThan(4);
       expect(Number.isFinite(f1)).toBe(true);
       expect(Number.isFinite(f2)).toBe(true);
+    }
+  });
+
+  it("matches a wide search, including a neighbor outside the 3x3x3", () => {
+    // Both neighbors sit just outside the 3×3×3 for this query. A fixed
+    // neighborhood returns the inner pair instead.
+    const x = -5.989568436425179;
+    const y = 15.431965310126543;
+    const z = -5.991718835807405;
+    const exact = wideWorley(4, x, y, z, 4);
+    expect(wideWorley(4, x, y, z, 1)).not.toEqual(exact);
+    expect(exact).toEqual({
+      f1: 1.0961375017777153,
+      f2: 1.0995123935118576,
+    });
+    expect(worley(4, x, y, z)).toEqual(exact);
+
+    const rng = createPrng(11);
+    for (let i = 0; i < 80; i++) {
+      const sx = rng.nextFloat(-30, 30);
+      const sy = rng.nextFloat(-30, 30);
+      const sz = rng.nextFloat(-30, 30);
+      expect(worley(11, sx, sy, sz)).toEqual(wideWorley(11, sx, sy, sz, 4));
     }
   });
 });

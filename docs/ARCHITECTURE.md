@@ -62,7 +62,7 @@ All functions are exported from `@planet/engine`.
 | `domainWarp(seed, x, y, z, options?)`         | input point plus a simplex displacement                   |
 | `worley(seed, x, y, z)`                       | `{ f1, f2 }` Euclidean distances, one point per unit cell |
 
-Fractal options are `octaves` (1–16, default 4), `lacunarity` (default 2), `gain` (default 0.5), and `frequency` (default 1). Domain warp options are `amplitude` (default 1) and `frequency` (default 1). Worley has no frequency argument; scale the coordinates instead. The octave cap exists so a bad value cannot request an unbounded sample loop.
+Fractal options are `octaves` (1–16, default 4), `lacunarity` (default 2), `gain` (default 0.5), and `frequency` (default 1). Domain warp options are `amplitude` (default 1) and `frequency` (default 1). Worley has no frequency argument; scale the coordinates instead. The search starts with the query cell and grows one Chebyshev shell at a time until the next shell cannot contain a closer second neighbor. The octave cap exists so a bad value cannot request an unbounded sample loop.
 
 ## Coordinates and precision
 
