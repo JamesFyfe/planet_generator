@@ -90,8 +90,8 @@ describe("sample(dir)", () => {
     expect(createPlanet(defaultPlanetParams()).sample({ x: 0.2, y: -0.4, z: 0.5 }))
       .toMatchInlineSnapshot(`
       {
-        "height": -1247.0666796644323,
-        "seaRelativeHeight": -1247.0666796644323,
+        "height": -1764.4332593601798,
+        "seaRelativeHeight": -1764.4332593601798,
       }
     `);
   });
@@ -124,10 +124,10 @@ describe("sample(dir)", () => {
     expect(flooded.sample(dir).seaRelativeHeight).toBe(planet.sample(dir).height - 250);
   });
 
-  it("scales height with amplitude and follows noise scale and octaves", () => {
+  it("scales height with relief and follows layer scale and octaves", () => {
     const dir = { x: 0.3, y: 0.5, z: -0.2 };
     const full = createPlanet(defaultPlanetParams()).sample(dir).height;
-    const half = createPlanet(withParams({ amplitude: 1_500 })).sample(dir).height;
+    const half = createPlanet(withParams({ amplitude: 2_000 })).sample(dir).height;
     expect(half * 2).toBeCloseTo(full, 8);
     expect(createPlanet(withParams({ radius: 8_000 })).sample(dir).height).toBe(full);
 
@@ -136,12 +136,20 @@ describe("sample(dir)", () => {
     );
     expect(
       DIRECTIONS.map(
-        (direction) => createPlanet(withParams({ octaves: 1 })).sample(direction).height,
+        (direction) =>
+          createPlanet(
+            withParams({
+              continentOctaves: 1,
+              mountainOctaves: 1,
+              hillOctaves: 1,
+              detailOctaves: 1,
+            }),
+          ).sample(direction).height,
       ),
     ).not.toEqual(defaults);
     expect(
       DIRECTIONS.map(
-        (direction) => createPlanet(withParams({ noiseScale: 3.5 })).sample(direction).height,
+        (direction) => createPlanet(withParams({ continentScale: 3.5 })).sample(direction).height,
       ),
     ).not.toEqual(defaults);
   });
@@ -168,8 +176,11 @@ describe("sample(dir)", () => {
   });
 
   it("has no discontinuity at the poles or across the antimeridian", () => {
-    const tolerance = 400;
-    const angle = 0.02;
+    // A degree-scale ring crosses real ridges. This step is small enough that
+    // a continuous field can only change by a few dozen meters, while a pole
+    // seam would jump by a large fraction of the relief.
+    const tolerance = 200;
+    const angle = 1e-3;
     for (const seed of [1, 42]) {
       const planet = createPlanet(withParams({ seed }));
       for (const ySign of [1, -1]) {
@@ -178,10 +189,10 @@ describe("sample(dir)", () => {
         expect(Math.max(...ring) - Math.min(...ring)).toBeLessThan(tolerance);
         for (const height of ring) expect(Math.abs(height - center)).toBeLessThan(tolerance);
       }
-      const eps = 1e-3;
+      const eps = 1e-4;
       const east = planet.sample({ x: -Math.cos(eps), y: 0, z: Math.sin(eps) }).height;
       const west = planet.sample({ x: -Math.cos(eps), y: 0, z: -Math.sin(eps) }).height;
-      expect(Math.abs(east - west)).toBeLessThan(100);
+      expect(Math.abs(east - west)).toBeLessThan(tolerance);
     }
   });
 });
@@ -400,6 +411,13 @@ describe("debug channels", () => {
       }
     }
     expect(ocean[2]).toBeGreaterThan(ocean[0]);
+    const steep = colorForChannel("terrain", params, landSample(1_500), 1);
+    const flat = colorForChannel("terrain", params, landSample(1_500), 0);
+    expect(steep).not.toEqual(flat);
+    const deep = landSample(-800);
+    expect(colorForChannel("terrain", params, deep, 0)).toEqual(
+      colorForChannel("terrain", params, deep, 1),
+    );
     expect(colorForChannel("slope", params, landSample(0), 0)).not.toEqual(
       colorForChannel("slope", params, landSample(0), 0.3),
     );

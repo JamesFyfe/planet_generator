@@ -21,9 +21,17 @@ export {
   selectChunks,
 } from "./lod";
 export { colorChunk } from "./chunkColor";
+export {
+  decodePlanetQuery,
+  encodePlanetQuery,
+  planetParamsFromJson,
+  planetParamsToJson,
+} from "./settings";
+export { PLANET_PRESETS, applyPlanetPreset, matchingPlanetPreset, planetPreset } from "./presets";
 
 export type { Prng } from "./prng";
 export type { ParamMeta, PlanetParamKey, PlanetParams } from "./params";
+export type { PlanetPreset, PlanetPresetId, PlanetPresetValues } from "./presets";
 export type { DomainWarpOptions, FractalOptions, Vec3, WorleyResult } from "./noise";
 export type { DebugChannelId, DebugChannelMeta } from "./debugChannels";
 export type { PlanetSample } from "./sample";

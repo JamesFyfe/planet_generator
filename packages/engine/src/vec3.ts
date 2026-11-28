@@ -39,3 +39,11 @@ export function normalize(v: Vec3): Vec3 {
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
+
+/** Hermite step. A zero-width window snaps to the upper edge. */
+export function smoothstep(edge0: number, edge1: number, value: number): number {
+  const span = edge1 - edge0;
+  if (span === 0) return value >= edge1 ? 1 : 0;
+  const t = clamp((value - edge0) / span, 0, 1);
+  return t * t * (3 - 2 * t);
+}

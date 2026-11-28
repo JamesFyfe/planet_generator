@@ -75,3 +75,19 @@ Screenshots at seed 1, default params. Distances are from the planet center: orb
 **Known issues.** One frame interval in the scripted flight was 33.3 ms; the average stayed on a 60 fps cadence. Headless Chromium was launched with Metal (`--use-angle=metal`). Coastlines are still a vertex-color band. Chunk-edge normals are still one-sided. The ground screenshot is a close fill of the surface (2,046 chunks, max LOD 12); cracks would show the dark background and do not.
 
 **Next.** Phase 3 terrain fields. A signed-in look at the preview would still be worth it, because Deployment Protection blocked the anonymous worker check.
+
+## 2026-11-27 — Phase 3 layered terrain and shareable settings
+
+**Changed.** `PlanetParams` is version 3. `noiseScale` and `octaves` are gone. Height is a layered function of the unit direction: domain warp, a continent mask with a coast shelf, ridged mountains gated toward inland, hills, and fine detail. Layer weights are normalized and scaled by `amplitude` (label Relief, meters), then clamped to `[-amplitude, amplitude]`. Every layer knob is in the registry under World, Continents, Mountains, Hills, Detail, Warp, and Surface.
+
+Slope replaces the land color with rock between 0.28 and 0.72 rad. Ocean and the shore band ignore slope. The lit material injects `slope` and `seaHeight` and calls `sampleTriplanar` on a deterministic grain texture. Debug channels stay unlit vertex colors. Worker payloads also transfer sea-relative height and slope.
+
+The panel is generated from the registry and grouped. Earthlike, Highlands, and Archipelago apply their overrides and keep the current seed. The query string stores `v`, `seed`, and clamped non-default params; load restores it and later edits rewrite it with `replaceState`. Save and Load JSON use the same object. Unknown keys, including a version 2 query, are ignored.
+
+Screenshots at default params except the seed: `docs/screenshots/phase-3/seed-1-orbit.png`, `seed-1-ground.png`, `seed-42-orbit.png`, `seed-42-ground.png`, `seed-7-orbit.png`, `seed-7-ground.png`. Orbit is 3.2 radii. The ground frames are a stepped descent to about 11 km above the mean sphere, aimed at land.
+
+**Unfinished.** No plates, climate, rivers, or features. The triplanar hook samples placeholder grain, not a texture set. Vertex morphing between LODs is still absent.
+
+**Known issues.** Jumping the camera to the surface can leave coarse parents visible until every selected child has uploaded; stepping the distance down does not. A chunk is about 2 ms in the worker, heavier than the old five-octave fBm. Chunk-edge normals are still one-sided. Skirt depth can hit the quarter-edge cap because the layer frequency is higher than the old noise scale of 1. The grain is faint at orbit distance.
+
+**Next.** Phase 4: atmosphere, water, and lighting.

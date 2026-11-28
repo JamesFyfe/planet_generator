@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Group, PerspectiveCamera } from "three";
+import { Group, Mesh, MeshStandardMaterial, PerspectiveCamera } from "three";
 import type { ChunkRequest, Vec3 } from "@planet/engine";
 import { isBeyondHorizon } from "./culling";
 import { createChunkMeshManager, type ChunkMeshPayload, type ChunkMeshSource } from "./chunkMeshes";
@@ -223,6 +223,38 @@ describe("chunk mesh manager", () => {
     await Promise.resolve();
     manager.sync({ ...base, selection: [parent] });
     expect(visibleNames()).toEqual(["chunk:0:0:0:0"]);
+    manager.dispose();
+  });
+});
+
+describe("terrain shader attributes", () => {
+  it("binds slope and sea height and shades that chunk without vertex colors", () => {
+    const group = new Group();
+    const source: ChunkMeshSource = {
+      buildChunk: (chunk) => ({
+        ...payload({ x: 0, y: 0, z: 100 }, chunk),
+        slope: new Float32Array([0.1, 0.4, 0.8]),
+        seaRelativeHeight: new Float32Array([20, 400, -30]),
+      }),
+    };
+    const manager = createChunkMeshManager(group, source);
+    const cameraWorld = { x: 0, y: 0, z: 400 };
+    manager.sync({
+      selection: [request(0)],
+      cameraWorld,
+      camera: cameraLookingAt(cameraWorld),
+      cacheKey: "terrain",
+      planetRadius: 50_000,
+      relief: 4_000,
+    });
+    const mesh = group.children[0];
+    expect(mesh).toBeInstanceOf(Mesh);
+    if (!(mesh instanceof Mesh)) throw new Error("expected a mesh");
+    expect(mesh.geometry.getAttribute("slope")?.count).toBe(3);
+    expect(mesh.geometry.getAttribute("seaHeight")?.count).toBe(3);
+    expect(mesh.material).toBeInstanceOf(MeshStandardMaterial);
+    if (!(mesh.material instanceof MeshStandardMaterial)) throw new Error("expected a material");
+    expect(mesh.material.vertexColors).toBe(false);
     manager.dispose();
   });
 });
