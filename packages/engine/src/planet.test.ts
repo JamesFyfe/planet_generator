@@ -124,6 +124,27 @@ describe("sample(dir)", () => {
     expect(flooded.sample(dir).seaRelativeHeight).toBe(planet.sample(dir).height - 250);
   });
 
+  it("ignores atmosphere, clouds, and motion when sampling terrain", () => {
+    const dir = { x: 0.2, y: -0.4, z: 0.5 };
+    const base = createPlanet(defaultPlanetParams()).sample(dir);
+    const airless = createPlanet(
+      withParams({
+        atmosphereDensity: 0,
+        atmosphereScaleHeight: 500,
+        atmosphereThickness: 0,
+        rayleighR: 0,
+        rayleighG: 0,
+        rayleighB: 0,
+        mieStrength: 0,
+        cloudDensity: 0,
+        cloudCoverage: 1,
+        axialTilt: -80,
+        rotationPeriod: 2,
+      }),
+    ).sample(dir);
+    expect(airless).toEqual(base);
+  });
+
   it("scales height with amplitude and follows noise scale and octaves", () => {
     const dir = { x: 0.3, y: 0.5, z: -0.2 };
     const full = createPlanet(defaultPlanetParams()).sample(dir).height;

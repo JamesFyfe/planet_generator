@@ -46,6 +46,22 @@ describe("controlsFromRegistry", () => {
       step: 100,
       label: "Sea level (m)",
     });
-    expect(Object.keys(groups)).toEqual(["World", "Noise", "Surface"]);
+    expect(groups.Atmosphere?.atmosphereDensity).toMatchObject({
+      value: 1,
+      min: 0,
+      label: "Density",
+    });
+    expect(groups.Atmosphere?.rayleighB).toMatchObject({ value: 225, label: "Rayleigh B" });
+    expect(groups.Clouds?.cloudCoverage).toMatchObject({ value: 0.48, label: "Coverage" });
+    expect(groups.Motion?.axialTilt).toMatchObject({ value: 23.4, label: "Axial tilt (°)" });
+    expect(groups.Motion?.rotationPeriod).toMatchObject({ value: 24, label: "Rotation (h)" });
+    expect(Object.keys(groups)).toEqual([
+      "World",
+      "Noise",
+      "Surface",
+      "Atmosphere",
+      "Clouds",
+      "Motion",
+    ]);
   });
 });

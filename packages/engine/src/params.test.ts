@@ -17,6 +17,17 @@ describe("planet parameter registry", () => {
       "octaves",
       "amplitude",
       "seaLevel",
+      "atmosphereDensity",
+      "atmosphereScaleHeight",
+      "atmosphereThickness",
+      "rayleighR",
+      "rayleighG",
+      "rayleighB",
+      "mieStrength",
+      "cloudDensity",
+      "cloudCoverage",
+      "axialTilt",
+      "rotationPeriod",
     ]);
   });
 
@@ -47,13 +58,24 @@ describe("planet parameter registry", () => {
     const params = defaultPlanetParams();
     expect(params.version).toBe(PLANET_PARAMS_VERSION);
     expect(params).toEqual({
-      version: 2,
+      version: 3,
       seed: 1,
       radius: 50_000,
       noiseScale: 1,
       octaves: 5,
       amplitude: 3_000,
       seaLevel: 0,
+      atmosphereDensity: 1,
+      atmosphereScaleHeight: 2_000,
+      atmosphereThickness: 8_000,
+      rayleighR: 50,
+      rayleighG: 110,
+      rayleighB: 225,
+      mieStrength: 20,
+      cloudDensity: 0.65,
+      cloudCoverage: 0.48,
+      axialTilt: 23.4,
+      rotationPeriod: 24,
     });
     expect(JSON.parse(JSON.stringify(params))).toEqual(params);
   });
@@ -70,6 +92,10 @@ describe("planet parameter registry", () => {
     expect(clampPlanetParam("octaves", 40)).toBe(8);
     expect(isPlanetParamKey("radius")).toBe(true);
     expect(isPlanetParamKey("seaLevel")).toBe(true);
+    expect(isPlanetParamKey("atmosphereDensity")).toBe(true);
+    expect(clampPlanetParam("atmosphereDensity", -1)).toBe(0);
+    expect(clampPlanetParam("axialTilt", 23.4)).toBe(23.4);
+    expect(clampPlanetParam("rotationPeriod", 0)).toBe(0.5);
     expect(isPlanetParamKey("biome")).toBe(false);
   });
 });

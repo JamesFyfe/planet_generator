@@ -1,4 +1,4 @@
-import { defaultPlanetParams } from "@planet/engine";
+import { defaultPlanetParams, PLANET_PARAMS_VERSION } from "@planet/engine";
 import { beforeEach, describe, expect, it } from "vitest";
 import { usePlanetStore } from "./store";
 
@@ -14,7 +14,7 @@ describe("planet store", () => {
   it("writes a panel value into the store and clamps it", () => {
     usePlanetStore.getState().setParam("noiseScale", 2.5);
     expect(usePlanetStore.getState().params.noiseScale).toBe(2.5);
-    expect(usePlanetStore.getState().params.version).toBe(2);
+    expect(usePlanetStore.getState().params.version).toBe(PLANET_PARAMS_VERSION);
 
     usePlanetStore.getState().setParam("radius", 1);
     expect(usePlanetStore.getState().params.radius).toBe(5_000);
@@ -37,5 +37,18 @@ describe("planet store", () => {
     usePlanetStore.getState().resetParams();
     expect(usePlanetStore.getState().params).toEqual(defaultPlanetParams());
     expect(usePlanetStore.getState().debugChannel).toBe("slope");
+  });
+
+  it("keeps time scale out of the planet params", () => {
+    expect(usePlanetStore.getState().timeScale).toBe(60);
+    usePlanetStore.getState().setTimeScale(240);
+    expect(usePlanetStore.getState().timeScale).toBe(240);
+    usePlanetStore.getState().setTimeScale(-4);
+    expect(usePlanetStore.getState().timeScale).toBe(0);
+    usePlanetStore.getState().setTimeScale(Number.POSITIVE_INFINITY);
+    expect(usePlanetStore.getState().timeScale).toBe(60);
+    usePlanetStore.getState().setParam("atmosphereDensity", 0);
+    expect(usePlanetStore.getState().params.atmosphereDensity).toBe(0);
+    expect(usePlanetStore.getState().timeScale).toBe(60);
   });
 });

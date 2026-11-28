@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PerspectiveCamera, Vector3 } from "three";
-import { applyOrbitDrag, spherical, viewUp } from "./orbit";
+import { applyOrbitDrag, pitchedLook, spherical, surfacePitch, viewUp } from "./orbit";
 
 function angleDeg(
   a: { x: number; y: number; z: number },
@@ -93,5 +93,27 @@ describe("applyOrbitDrag", () => {
       const downDelta = project(afterDown.camera, afterDown.cameraWorld, upPoint).y - upNdc.y;
       expect(downDelta).toBeLessThan(0);
     }
+  });
+});
+
+describe("surface pitch", () => {
+  it("looks at the planet from orbit and along the horizon near the ground", () => {
+    const radius = 50_000;
+    expect(surfacePitch(radius * 2, radius)).toBe(0);
+    expect(surfacePitch(100, radius)).toBe(1);
+    const radial = { x: 1, y: 0, z: 0 };
+    const up = viewUp(radial.x, radial.y, radial.z);
+    const orbit = pitchedLook(radial, up, 0, null);
+    expect(orbit.look.x).toBeCloseTo(-1, 6);
+    expect(orbit.look.y).toBeCloseTo(0, 6);
+    expect(orbit.look.z).toBeCloseTo(0, 6);
+    const ground = pitchedLook(radial, up, 1, null);
+    expect(
+      Math.abs(ground.look.x * radial.x + ground.look.y * radial.y + ground.look.z * radial.z),
+    ).toBeLessThan(1e-6);
+    const alignment =
+      ground.look.x * ground.up.x + ground.look.y * ground.up.y + ground.look.z * ground.up.z;
+    expect(Math.abs(alignment)).toBeLessThan(1e-5);
+    expect(ground.up.x).toBeGreaterThan(0.9);
   });
 });

@@ -1,15 +1,18 @@
 import { createPlanet, selectChunks } from "@planet/engine";
-import type { Planet } from "@planet/engine";
-import { createChunkMeshManager } from "@planet/renderer";
-import type { ChunkMeshManager } from "@planet/renderer";
+import type { Planet, Vec3 } from "@planet/engine";
+import { createChunkMeshManager, createPlanetVisuals, sunDirection } from "@planet/renderer";
+import type { ChunkMeshManager, PlanetVisuals } from "@planet/renderer";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
-import { DirectionalLight, Group, PerspectiveCamera, Vector3 } from "three";
+import { Group, PerspectiveCamera } from "three";
 import { createPlanetChunkSource } from "./chunkSource";
 import { formatChunkStats } from "./chunkStats";
-import { applyOrbitDrag, spherical, viewUp } from "./orbit";
+import { applyOrbitDrag, pitchedLook, spherical, surfacePitch, viewUp } from "./orbit";
+import type { OrbitVec } from "./orbit";
+import { findShorePose, findSunsetPose } from "./shots";
 import { usePlanetStore } from "./store";
+import { terrainCacheKey } from "./terrainKey";
 
 const ORBIT_RADIUS_SCALE = 3.2;
 const MAX_RADIUS_SCALE = 6;
@@ -20,6 +23,9 @@ interface OrbitState {
   theta: number;
   phi: number;
   distance: number;
+  glance: OrbitVec | null;
+  /** Null follows altitude. A number forces the horizon pitch for a shot. */
+  pitchOverride: number | null;
 }
 
 interface PlanetCameraApi {
@@ -34,14 +40,23 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
   const camera = useThree((state) => state.camera);
   const size = useThree((state) => state.size);
   const gl = useThree((state) => state.gl);
+  const timeScale = usePlanetStore((state) => state.timeScale);
   const root = useMemo(() => new Group(), []);
-  const sun = useMemo(() => new DirectionalLight("#fff4e0", 1.55), []);
-  const look = useMemo(() => new Vector3(), []);
-  const orbit = useRef<OrbitState>({ theta: 0.75, phi: 0.95, distance: -1 });
+  const orbit = useRef<OrbitState>({
+    theta: 0.75,
+    phi: 0.95,
+    distance: -1,
+    glance: null,
+    pitchOverride: null,
+  });
   const radiusScale = useRef(0);
+  const timeRef = useRef(0);
+  const timeScaleRef = useRef(timeScale);
+  timeScaleRef.current = timeScale;
   const planetRef = useRef<Planet>(createPlanet(displayParams));
   const channelRef = useRef(debugChannel);
   const managerRef = useRef<ChunkMeshManager | null>(null);
+  const visualsRef = useRef<PlanetVisuals | null>(null);
 
   useEffect(() => {
     if (displayParams === params) return;
@@ -63,11 +78,17 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
   );
 
   useEffect(() => {
-    const manager = createChunkMeshManager(root, source);
+    const visuals = createPlanetVisuals(root);
+    visualsRef.current = visuals;
+    const manager = createChunkMeshManager(root, source, {
+      attachments: [visuals.waterAttachment],
+    });
     managerRef.current = manager;
     return () => {
       manager.dispose();
+      visuals.dispose();
       if (managerRef.current === manager) managerRef.current = null;
+      if (visualsRef.current === visuals) visualsRef.current = null;
     };
   }, [root, source]);
 
@@ -97,6 +118,8 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
       pointerX = event.clientX;
       pointerY = event.clientY;
       applyOrbitDrag(state, dx, dy);
+      state.glance = null;
+      state.pitchOverride = null;
     };
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
@@ -131,18 +154,108 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
         if (view.theta !== undefined) orbit.current.theta = view.theta;
         if (view.phi !== undefined) orbit.current.phi = view.phi;
         if (view.distance !== undefined) orbit.current.distance = view.distance;
+        if ("glance" in view) orbit.current.glance = view.glance ?? null;
+        if ("pitchOverride" in view) orbit.current.pitchOverride = view.pitchOverride ?? null;
       },
       getView: () => ({ ...orbit.current }),
     };
-    const host = window as Window & { __planetCamera?: PlanetCameraApi };
+    const applyPose = (pose: {
+      theta: number;
+      phi: number;
+      distance: number;
+      glance: Vec3;
+      pitch: number;
+      timeSeconds: number;
+    }) => {
+      usePlanetStore.getState().setTimeScale(0);
+      timeRef.current = pose.timeSeconds;
+      orbit.current.theta = pose.theta;
+      orbit.current.phi = pose.phi;
+      orbit.current.distance = pose.distance;
+      orbit.current.glance = pose.glance;
+      orbit.current.pitchOverride = pose.pitch;
+    };
+    const shot = {
+      setTime: (seconds: number) => {
+        timeRef.current = seconds;
+      },
+      setTimeScale: (scale: number) => {
+        usePlanetStore.getState().setTimeScale(scale);
+      },
+      frameOrbit: () => {
+        usePlanetStore.getState().setTimeScale(0);
+        const params = planetRef.current.params;
+        const facing = spherical(1, 0.75, 0.95);
+        let bestTime = 0;
+        let bestScore = Number.POSITIVE_INFINITY;
+        const period = params.rotationPeriod * 3600;
+        for (let step = 0; step < 72; step++) {
+          const time = (step / 72) * period;
+          const sun = sunDirection(params.axialTilt, params.rotationPeriod, time);
+          const elev = facing.x * sun.x + facing.y * sun.y + facing.z * sun.z;
+          const score = Math.abs(elev - 0.22);
+          if (score < bestScore) {
+            bestScore = score;
+            bestTime = time;
+          }
+        }
+        timeRef.current = bestTime;
+        orbit.current.theta = 0.75;
+        orbit.current.phi = 0.95;
+        orbit.current.distance = params.radius * ORBIT_RADIUS_SCALE;
+        orbit.current.glance = null;
+        orbit.current.pitchOverride = 0;
+      },
+      frameSunset: () => {
+        const planet = planetRef.current;
+        applyPose(
+          findSunsetPose(
+            (dir) => planet.sample(dir),
+            planet.params.radius,
+            planet.params.axialTilt,
+            planet.params.rotationPeriod,
+          ),
+        );
+      },
+      frameShore: () => {
+        const planet = planetRef.current;
+        applyPose(
+          findShorePose(
+            (dir) => planet.sample(dir),
+            planet.params.radius,
+            timeRef.current,
+            planet.params.axialTilt,
+            planet.params.rotationPeriod,
+          ),
+        );
+      },
+      frameAirless: () => {
+        const store = usePlanetStore.getState();
+        store.setTimeScale(0);
+        store.setParam("atmosphereDensity", 0);
+        store.setParam("cloudDensity", 0);
+        store.setParam("cloudCoverage", 0);
+        const radius = planetRef.current.params.radius;
+        orbit.current.distance = radius * ORBIT_RADIUS_SCALE;
+        orbit.current.glance = null;
+        orbit.current.pitchOverride = 0;
+      },
+    };
+    const host = window as Window & {
+      __planetCamera?: PlanetCameraApi;
+      __planetShot?: typeof shot;
+    };
     host.__planetCamera = api;
+    host.__planetShot = shot;
     return () => {
       if (host.__planetCamera === api) delete host.__planetCamera;
+      if (host.__planetShot === shot) delete host.__planetShot;
     };
   }, []);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     if (!(camera instanceof PerspectiveCamera)) return;
+    timeRef.current += Math.min(delta, 0.05) * timeScaleRef.current;
     const active = planetRef.current;
     const radius = active.params.radius;
     const state = orbit.current;
@@ -161,23 +274,22 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
     state.distance = Math.min(maxDistance, Math.max(minDistance, state.distance));
 
     const cameraWorld = spherical(state.distance, state.theta, state.phi);
-    const up = viewUp(unit.x, unit.y, unit.z);
-    camera.up.set(up.x, up.y, up.z);
+    const altitude = state.distance - ground;
+    const pitch = state.pitchOverride ?? surfacePitch(altitude, radius);
+    const screenUp = viewUp(unit.x, unit.y, unit.z);
+    const aimed = pitchedLook(unit, screenUp, pitch, state.glance);
+    camera.up.set(aimed.up.x, aimed.up.y, aimed.up.z);
     camera.position.set(0, 0, 0);
-    camera.lookAt(-cameraWorld.x, -cameraWorld.y, -cameraWorld.z);
+    camera.lookAt(aimed.look.x, aimed.look.y, aimed.look.z);
     const clearance = Math.max(1, state.distance - ground);
     camera.near = Math.max(0.2, Math.min(clearance * 0.1, 2_000));
+    const shell = radius + active.params.seaLevel + active.params.atmosphereThickness;
     camera.far = Math.max(
       camera.near + 1,
-      state.distance + radius + Math.abs(active.params.amplitude) + 1_000,
+      state.distance + shell + Math.abs(active.params.amplitude) + 2_000,
     );
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
-
-    camera.getWorldDirection(look);
-    sun.position.set(-look.x + 0.4, -look.y + 0.75, -look.z + 0.2);
-    sun.target.position.copy(look);
-    sun.target.updateMatrixWorld();
 
     const manager = managerRef.current;
     if (!manager) return;
@@ -188,23 +300,22 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
       screenHeight: Math.max(1, size.height * gl.getPixelRatio()),
       relief: Math.abs(active.params.amplitude),
     });
+    visualsRef.current?.update({
+      params: active.params,
+      timeSeconds: timeRef.current,
+      cameraWorld,
+      camera,
+    });
     const stats = manager.sync({
       selection,
       cameraWorld,
       camera,
-      cacheKey: `${channelRef.current}:${JSON.stringify(active.params)}`,
+      cacheKey: terrainCacheKey(channelRef.current, active.params),
       planetRadius: radius,
       relief: Math.abs(active.params.amplitude),
     });
     if (statsRef.current) statsRef.current.textContent = formatChunkStats(stats);
   });
 
-  return (
-    <>
-      <primitive object={sun} />
-      <primitive object={sun.target} />
-      <ambientLight intensity={0.32} />
-      <primitive object={root} />
-    </>
-  );
+  return <primitive object={root} />;
 }

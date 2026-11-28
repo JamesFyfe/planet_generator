@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Group, PerspectiveCamera } from "three";
+import { BufferGeometry, Group, Mesh, MeshBasicMaterial, PerspectiveCamera } from "three";
 import type { ChunkRequest, Vec3 } from "@planet/engine";
 import { isBeyondHorizon } from "./culling";
 import { createChunkMeshManager, type ChunkMeshPayload, type ChunkMeshSource } from "./chunkMeshes";
@@ -151,6 +151,53 @@ describe("chunk mesh manager", () => {
     pending[1]?.(payload({ x: 0, y: 100, z: 0 }, request(2)));
     await Promise.resolve();
     expect(group.children).toHaveLength(1);
+    manager.dispose();
+  });
+});
+
+describe("chunk attachments", () => {
+  it("parents an attachment to the chunk and drops it with the chunk", () => {
+    const group = new Group();
+    const source: ChunkMeshSource = {
+      buildChunk: (chunk) => payload({ x: 10, y: 0, z: 0 }, chunk),
+    };
+    const created: string[] = [];
+    const manager = createChunkMeshManager(group, source, {
+      attachments: [
+        {
+          name: "marker",
+          create: () => {
+            created.push("yes");
+            const mesh = new Mesh(new BufferGeometry(), new MeshBasicMaterial());
+            mesh.name = "marker";
+            return mesh;
+          },
+          dispose: (object) => {
+            if (object instanceof Mesh) object.geometry.dispose();
+          },
+        },
+      ],
+    });
+    const cameraWorld = { x: 0, y: 0, z: 40 };
+    manager.sync({
+      selection: [request(0)],
+      cameraWorld,
+      camera: cameraLookingAt(cameraWorld),
+      cacheKey: "attach",
+      planetRadius: 100,
+      relief: 0,
+    });
+    expect(created).toEqual(["yes"]);
+    expect(group.children[0]?.children[0]?.name).toBe("marker");
+    manager.sync({
+      selection: [],
+      cameraWorld,
+      camera: cameraLookingAt(cameraWorld),
+      cacheKey: "attach",
+      planetRadius: 100,
+      relief: 0,
+    });
+    expect(group.children).toHaveLength(0);
     manager.dispose();
   });
 });

@@ -6,7 +6,8 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
 } from "three";
-import type { Group, PerspectiveCamera } from "three";
+import type { Group, Object3D, PerspectiveCamera } from "three";
+import type { ChunkAttachment } from "./layers/types";
 import { horizonOccluder, isBeyondHorizon, isSphereInFrustum } from "./culling";
 
 /**
@@ -26,6 +27,14 @@ export interface ChunkMeshPayload {
   lit: boolean;
   /** Time spent inside the generator, milliseconds. */
   generateMs: number;
+  /**
+   * Surface-grid heights, including the skirt copies the terrain builder
+   * writes. Water reads the first `gridSize * gridSize` entries.
+   */
+  seaRelativeHeight?: Float32Array;
+  gridSize?: number;
+  planetRadius?: number;
+  seaLevel?: number;
 }
 
 export interface ChunkMeshSource {
@@ -60,6 +69,7 @@ interface Resident {
   mesh: Mesh;
   origin: Vec3;
   boundingRadius: number;
+  extras: { attachment: ChunkAttachment; object: Object3D }[];
 }
 
 /** New meshes per call once the first shell exists. Each chunk is about a millisecond. */
@@ -84,9 +94,10 @@ function isPromise(
 export function createChunkMeshManager(
   parent: Group,
   source: ChunkMeshSource,
-  options?: { buildsPerFrame?: number },
+  options?: { buildsPerFrame?: number; attachments?: readonly ChunkAttachment[] },
 ): ChunkMeshManager {
   const buildsPerFrame = options?.buildsPerFrame ?? DEFAULT_BUILDS_PER_FRAME;
+  const attachments = options?.attachments ?? [];
   const resident = new Map<string, Resident>();
   const pending = new Set<string>();
   const litMaterial = new MeshStandardMaterial({
@@ -118,13 +129,17 @@ export function createChunkMeshManager(
     };
   }
 
-  function disposeMesh(mesh: Mesh): void {
-    mesh.removeFromParent();
-    mesh.geometry.dispose();
+  function disposeMesh(entry: Resident): void {
+    for (const extra of entry.extras) {
+      extra.object.removeFromParent();
+      extra.attachment.dispose(extra.object);
+    }
+    entry.mesh.removeFromParent();
+    entry.mesh.geometry.dispose();
   }
 
   function clearResidents(): void {
-    for (const entry of resident.values()) disposeMesh(entry.mesh);
+    for (const entry of resident.values()) disposeMesh(entry);
     resident.clear();
     pending.clear();
     generated = 0;
@@ -166,12 +181,20 @@ export function createChunkMeshManager(
     const mesh = new Mesh(geometry, payload.lit ? litMaterial : unlitMaterial);
     mesh.name = `chunk:${key}`;
     mesh.frustumCulled = false;
+    const extras: Resident["extras"] = [];
+    for (const attachment of attachments) {
+      const object = attachment.create(payload);
+      if (!object) continue;
+      mesh.add(object);
+      extras.push({ attachment, object });
+    }
     parent.add(mesh);
     const entry: Resident = {
       key,
       mesh,
       origin: payload.origin,
       boundingRadius: payload.boundingRadius,
+      extras,
     };
     resident.set(key, entry);
     lastGenerateMs = payload.generateMs;
@@ -191,7 +214,7 @@ export function createChunkMeshManager(
       const wanted = new Set(next.selection.map((request) => chunkKey(request)));
       for (const [key, entry] of resident) {
         if (!wanted.has(key)) {
-          disposeMesh(entry.mesh);
+          disposeMesh(entry);
           resident.delete(key);
         }
       }

@@ -33,6 +33,71 @@ export function viewUp(dirX: number, dirY: number, dirZ: number) {
   return { x: x / len, y: y / len, z: z / len };
 }
 
+export interface OrbitVec {
+  x: number;
+  y: number;
+  z: number;
+}
+
+function dot(a: OrbitVec, b: OrbitVec): number {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function scale(v: OrbitVec, factor: number): OrbitVec {
+  return { x: v.x * factor, y: v.y * factor, z: v.z * factor };
+}
+
+function add(a: OrbitVec, b: OrbitVec): OrbitVec {
+  return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z };
+}
+
+function sub(a: OrbitVec, b: OrbitVec): OrbitVec {
+  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+}
+
+function normalize(v: OrbitVec): OrbitVec {
+  const len = Math.hypot(v.x, v.y, v.z);
+  if (len < 1e-8) return { x: 0, y: 1, z: 0 };
+  return scale(v, 1 / len);
+}
+
+/**
+ * 0 looks straight down at the planet. 1 looks along the horizon so the
+ * sky, the limb, and a sunset are actually in frame. The blend runs while
+ * the camera descends through the outer atmosphere.
+ */
+export function surfacePitch(altitude: number, radius: number): number {
+  const start = radius * 0.4;
+  const end = Math.max(800, radius * 0.02);
+  if (!(altitude < start)) return 0;
+  if (altitude <= end) return 1;
+  const t = (start - altitude) / (start - end);
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * `glance` is a world direction to face once the view has pitched up.
+ * Null keeps the heading that was screen-up while looking at the planet.
+ */
+export function pitchedLook(
+  radial: OrbitVec,
+  screenUp: OrbitVec,
+  pitch: number,
+  glance: OrbitVec | null,
+): { look: OrbitVec; up: OrbitVec } {
+  const clamped = Math.min(1, Math.max(0, pitch));
+  const nadir = scale(radial, -1);
+  if (clamped <= 0) return { look: nadir, up: screenUp };
+  const hint = glance ?? screenUp;
+  const tangent = normalize(sub(hint, scale(radial, dot(hint, radial))));
+  const look = normalize(add(scale(nadir, 1 - clamped), scale(tangent, clamped)));
+  const sky = sub(radial, scale(look, dot(radial, look)));
+  const skyLen = Math.hypot(sky.x, sky.y, sky.z);
+  const skyUp = skyLen < 1e-6 ? screenUp : scale(sky, 1 / skyLen);
+  const up = normalize(add(scale(screenUp, 1 - clamped), scale(skyUp, clamped)));
+  return { look, up };
+}
+
 /** Right-drag increases theta. Down-drag decreases phi. The surface follows the pointer. */
 export function applyOrbitDrag(angles: OrbitAngles, dx: number, dy: number): void {
   angles.theta += dx * ORBIT_POINTER_SPEED;

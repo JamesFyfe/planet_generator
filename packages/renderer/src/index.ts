@@ -6,6 +6,13 @@ export const RENDERER_PACKAGE = "@planet/renderer";
 
 export { createPlanetMesh, disposePlanetMesh } from "./planetMesh";
 export { createChunkMeshManager } from "./chunkMeshes";
+export { createPlanetVisuals } from "./visuals";
+export {
+  cameraInsideAtmosphere,
+  directSunTransmittance,
+  isAtmosphereEnabled,
+  sunDirection,
+} from "./lighting";
 
 export type {
   ChunkMeshFrame,
@@ -14,3 +21,5 @@ export type {
   ChunkMeshSource,
   ChunkMeshStats,
 } from "./chunkMeshes";
+export type { PlanetVisualFrame, PlanetVisuals } from "./visuals";
+export type { ChunkAttachment, PlanetLayer, PlanetRenderState } from "./layers/types";

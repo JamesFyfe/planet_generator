@@ -61,3 +61,17 @@ Screenshots at seed 1, default params. Distances are from the planet center: orb
 **Known issues.** The orbit stops 0.05 rad short of either pole so the up projection does not vanish. Crossing that clamp ends the pitch instead of tumbling over the pole.
 
 **Next.** Unchanged.
+
+## 2026-11-28 — Phase 4 atmosphere, water, lighting
+
+**Changed.** `PlanetParams` is version 3. The registry gained atmosphere density, scale height, thickness, Rayleigh coefficients, Mie strength, cloud density, coverage, axial tilt, and rotation period. Terrain sampling ignores those fields. The explorer chunk cache key is terrain-only, so those sliders do not rebuild meshes. Time scale is explorer state, not a planet parameter, and `timeSeconds` is passed into the renderer each frame.
+
+The renderer draws stars, a directional sun, a Rayleigh/Mie shell, and a cloud shell. Water is a per-chunk attachment on the sea sphere so it shares the floating origin. The sun path through the atmosphere uses the Chapman air mass, which is what makes the horizon go orange instead of staying blue. Wave normals fade out once they are smaller than a pixel. Water has no skirt, because a skirt sized from the whole chunk edge showed up as a grid.
+
+Screenshots at seed 1, default params except where noted: `docs/screenshots/phase-4/seed-1-orbit.png`, `seed-1-sunset-ground.png`, `seed-1-shore.png`, and `seed-1-airless-orbit.png` (density, cloud density, and coverage at 0).
+
+**Unfinished.** No weather, biomes, or multiple scattering. Clouds are a noise shell, not a forecast. The sun is a direction on a fixed planet; the mesh does not spin.
+
+**Known issues.** Chunk-edge normals are still one-sided, so a low sun can show faint seams on coarse terrain. Coastlines are still stair-stepped on the grid. The orbit view at the default pixel error stops around LOD 3, which is the same selection as before. A one-level water T-junction can leave a sub-meter crack; it is not covered by a skirt. Generation is still on the main thread.
+
+**Next.** Phase 5 is macro geology. Do not start it from this branch.

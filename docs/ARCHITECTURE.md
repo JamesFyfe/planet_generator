@@ -1,6 +1,6 @@
 # Architecture
 
-Current contracts for Planet Engine. Phase 2 adds the chunk quadtree, screen-space LOD selection, and chunk meshes with a floating origin. Workers, the feature-layer interface, and the global bake are not contracts yet.
+Current contracts for Planet Engine. Phase 2 adds the chunk quadtree, screen-space LOD selection, and chunk meshes with a floating origin. Phase 4 adds the renderer layers: sun, stars, atmosphere, clouds, and a chunk-attached ocean. Workers, the feature-layer interface, and the global bake are not contracts yet.
 
 ## Layout
 
@@ -38,20 +38,33 @@ Meters. Do not hardcode planet radius, sea level, or any other value that has a 
 
 `PLANET_PARAM_REGISTRY` in `@planet/engine` is the only slider list. Each entry has `key`, `label`, `min`, `max`, `default`, `step`, and `group`.
 
-`PlanetParams` is `{ version, seed, radius, noiseScale, octaves, amplitude, seaLevel }`. `version` is `PLANET_PARAMS_VERSION` (`2`) and is not a slider. Version moved from 1 to 2 when the terrain fields joined the object. `defaultPlanetParams()` builds the object from the registry. `clampPlanetParam` enforces min and max. The explorer store writes through that clamp.
+`PlanetParams` is the registry fields plus `version`. `version` is `PLANET_PARAMS_VERSION` (`3`) and is not a slider. Version moved from 1 to 2 when the terrain fields joined the object, and from 2 to 3 when atmosphere, clouds, and motion joined it. Terrain sampling does not read the phase 4 fields, so a change to them does not change a chunk. `defaultPlanetParams()` builds the object from the registry. `clampPlanetParam` enforces min and max. The explorer store writes through that clamp.
 
-The leva panel is generated from the registry (`controlsFromRegistry`). Do not hand-write a slider for a registered parameter. The debug-view dropdown is not a planet parameter; it is a view setting driven by `DEBUG_CHANNEL_REGISTRY`.
+The leva panel is generated from the registry (`controlsFromRegistry`). Do not hand-write a slider for a registered parameter. The debug-view dropdown is not a planet parameter; it is a view setting driven by `DEBUG_CHANNEL_REGISTRY`. Time scale is not a planet parameter either. It lives on the explorer store and is drawn by `TimeControl`, because putting it in `PlanetParams` would make the engine depend on time.
 
-| key        | group   | range                         | default |
-| ---------- | ------- | ----------------------------- | ------- |
-| seed       | World   | 0 – 1_000_000, step 1         | 1       |
-| radius     | World   | 5_000 – 500_000 m, step 1_000 | 50_000  |
-| noiseScale | Noise   | 0.1 – 10, step 0.1            | 1       |
-| octaves    | Noise   | 1 – 8, step 1                 | 5       |
-| amplitude  | Noise   | 0 – 20_000 m, step 100        | 3_000   |
-| seaLevel   | Surface | -10_000 – 10_000 m, step 100  | 0       |
+| key                   | group      | range                         | default |
+| --------------------- | ---------- | ----------------------------- | ------- |
+| seed                  | World      | 0 – 1_000_000, step 1         | 1       |
+| radius                | World      | 5_000 – 500_000 m, step 1_000 | 50_000  |
+| noiseScale            | Noise      | 0.1 – 10, step 0.1            | 1       |
+| octaves               | Noise      | 1 – 8, step 1                 | 5       |
+| amplitude             | Noise      | 0 – 20_000 m, step 100        | 3_000   |
+| seaLevel              | Surface    | -10_000 – 10_000 m, step 100  | 0       |
+| atmosphereDensity     | Atmosphere | 0 – 4, step 0.05              | 1       |
+| atmosphereScaleHeight | Atmosphere | 100 – 30_000 m, step 50       | 2_000   |
+| atmosphereThickness   | Atmosphere | 0 – 80_000 m, step 100        | 8_000   |
+| rayleighR             | Atmosphere | 0 – 800, step 1               | 50      |
+| rayleighG             | Atmosphere | 0 – 800, step 1               | 110     |
+| rayleighB             | Atmosphere | 0 – 1_200, step 1             | 225     |
+| mieStrength           | Atmosphere | 0 – 200, step 0.5             | 20      |
+| cloudDensity          | Clouds     | 0 – 1, step 0.01              | 0.65    |
+| cloudCoverage         | Clouds     | 0 – 1, step 0.01              | 0.48    |
+| axialTilt             | Motion     | -90 – 90 °, step 0.1          | 23.4    |
+| rotationPeriod        | Motion     | 0.5 – 240 h, step 0.5         | 24      |
 
 `noiseScale` is the fBm frequency on the unit sphere. `octaves` is rounded to an integer before sampling because fBm requires a whole octave count. `amplitude` is the meter scale of the noise (about [-amplitude, amplitude]). `seaLevel` is meters in that same height space. Sea-relative height is `height - seaLevel`.
+
+Rayleigh and Mie slider values are coefficients in units of `1e-6 / m`. Density multiplies them. Density `0` or thickness `0` switches the atmosphere off, which is the airless body. The cloud deck is a separate layer: density `0` or coverage `0` hides it, including on an airless body that still has an atmosphere slider left at zero.
 
 ## Noise
 
@@ -115,7 +128,40 @@ Skirts are a ring of vertices pulled toward the planet center. Their depth scale
 
 Generation stays behind `ChunkMeshSource` in the renderer. The explorer's `createPlanetChunkSource` calls `buildChunk` on the main thread and returns the payload directly. A worker can return a `Promise` of the same payload; `createChunkMeshManager` already accepts either, and nothing else in the scene has to change.
 
-The manager keeps at most `buildsPerFrame` new meshes per call (default 32) unless fewer than eight are missing, so a view can fill in without building the whole selection in one frame. The first shell still appears together. Selection order is nearest first, so the foreground arrives before the hidden chunks. It drops meshes that leave the selection. A `cacheKey` change (params or debug channel) throws the set away. Frustum and horizon tests set `mesh.visible`. The horizon occluder is `max(radius * 0.5, radius - relief)` so a mountain can still peek over the limb. Chunk vertices are not transformed by a large planet matrix: each mesh sits at `origin - camera`, both subtracted in float64, and the camera stays at the scene origin.
+The manager keeps at most `buildsPerFrame` new meshes per call (default 32) unless fewer than eight are missing, so a view can fill in without building the whole selection in one frame. The first shell still appears together. Selection order is nearest first, so the foreground arrives before the hidden chunks. It drops meshes that leave the selection. A `cacheKey` change throws the set away. The explorer key is the debug channel plus the terrain fields only (`terrainCacheKey`), so an atmosphere, cloud, or motion edit does not rebuild chunks. Frustum and horizon tests set `mesh.visible`. The horizon occluder is `max(radius * 0.5, radius - relief)` so a mountain can still peek over the limb. Chunk vertices are not transformed by a large planet matrix: each mesh sits at `origin - camera`, both subtracted in float64, and the camera stays at the scene origin.
+
+## Rendering layers
+
+`createPlanetVisuals(parent)` owns everything that is not a terrain chunk. `createChunkMeshManager` still owns the chunks. The camera stays at the scene origin. Shells are placed at `-cameraWorld` and scaled to their radius, so a float32 matrix never stores a planet-centered position.
+
+Draw order is `renderOrder`, back to front:
+
+| order | layer      | what it is                                                           |
+| ----- | ---------- | -------------------------------------------------------------------- |
+| -20   | stars      | points on a spinning sphere, pinned to the far plane, depth test off |
+| 0     | terrain    | chunk meshes, lit by the sun directional and a dim ambient           |
+| 1     | water      | one mesh per wet chunk, parented to that chunk                       |
+| 2     | atmosphere | Rayleigh + Mie shell, or hidden when density or thickness is 0       |
+| 3     | clouds     | noise shell above the sea, hidden when density or coverage is 0      |
+
+The sun is a `DirectionalLight` aimed at the origin. Its direction comes from `sunDirection(tilt, period, timeSeconds)`. From inside the atmosphere the light color is the direct-beam transmittance, so sunrise and sunset redden the ground. From orbit the light stays white and the shell carries the limb. Stars use the same spin, so the sky and the sun move together. The planet mesh does not rotate.
+
+Time is a number on the frame, `PlanetVisualFrame.timeSeconds`. The explorer advances it by `delta * timeScale` and passes it in. The engine never reads it. `timeScale` is seconds of simulation per second of wall clock.
+
+### Atmosphere
+
+One `ShaderMaterial` on a sphere of the outer radius. The sphere is only the raster mask. The ray starts at the camera, so the same shader is valid from orbit and from the ground. Outside, the material is front-sided. Inside, it is back-sided. The view ray is marched; the sun path uses the Chapman air mass `sqrt(π R / 2H)` instead of a short second march, which is what keeps the horizon from staying blue and from banding. Output is dithered. Blend is `One / OneMinusSrcAlpha`, where alpha is one minus the mean transmittance, so the shell both adds scatter and dims the ground. Density `0` sets `mesh.visible = false` and the direct sun transmittance returns white.
+
+### Water
+
+Water is a `ChunkAttachment`, not a scene sphere. `buildWaterGeometry` projects the chunk's surface grid onto the sea sphere in that chunk's local frame (`seaPoint - origin`). The mesh is parented to the terrain chunk, so it inherits `origin - camera` and the shoreline stays in float32 range. A chunk that is entirely above sea level gets no mesh. Quads that touch any wet vertex are kept, and the fragment discards depth at or below zero, which is the shore fade. There is no skirt: equal-LOD edges already meet on the sphere, and a skirt tall enough to hide a whole-chunk sagitta reads as a grid through a transparent surface. Wave normals are faded by `fwidth` once a wave is smaller than a pixel, so the orbit view does not alias into rings.
+
+### Adding a layer
+
+1. Implement `PlanetLayer` (`name`, `update(state)`, `dispose`) for a shell, a sky, or a light. Implement `ChunkAttachment` (`name`, `create(payload)`, `dispose`) when the geometry has to share a terrain chunk's floating origin.
+2. Construct it in `createPlanetVisuals`. Append a scene layer to the `layers` array. Return a chunk attachment the way water does, and pass it to `createChunkMeshManager` as `attachments`.
+3. Read parameters and `timeSeconds` from `PlanetRenderState`. Do not read a clock. Do not import React. Set `renderOrder` so transparent layers stay back to front.
+4. A new registered parameter needs a `PLANET_PARAMS_VERSION` bump and a note in `docs/PROGRESS.md`. If the parameter must not rebuild terrain, leave it out of `terrainCacheKey`.
 
 ## Coordinates and precision
 

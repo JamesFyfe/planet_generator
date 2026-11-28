@@ -1,4 +1,4 @@
-import { colorChunk, debugChannelMeta } from "@planet/engine";
+import { CHUNK_GRID_SIZE, colorChunk, debugChannelMeta } from "@planet/engine";
 import type { ChunkRequest, DebugChannelId, Planet } from "@planet/engine";
 import type { ChunkMeshPayload, ChunkMeshSource } from "@planet/renderer";
 
@@ -27,6 +27,10 @@ export function createPlanetChunkSource(
         boundingRadius: data.boundingRadius,
         lit: debugChannelMeta(channel).lit,
         generateMs: performance.now() - started,
+        seaRelativeHeight: data.seaRelativeHeight,
+        gridSize: CHUNK_GRID_SIZE,
+        planetRadius: planet.params.radius,
+        seaLevel: planet.params.seaLevel,
       };
     },
   };
