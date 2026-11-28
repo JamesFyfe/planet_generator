@@ -227,6 +227,13 @@ export function createChunkMeshManager(
       frame = next;
       terrain.uniforms.uRadius.value = next.planetRadius;
       terrain.uniforms.uAmplitude.value = next.relief;
+      // Same camera that place() subtracts. The shader adds it back so the
+      // grain stays on the planet instead of following the view.
+      terrain.uniforms.uCameraWorld.value.set(
+        next.cameraWorld.x,
+        next.cameraWorld.y,
+        next.cameraWorld.z,
+      );
       if (next.cacheKey !== cacheKey) {
         generation += 1;
         cacheKey = next.cacheKey;

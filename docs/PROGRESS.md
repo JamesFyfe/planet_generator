@@ -91,3 +91,13 @@ Screenshots at default params except the seed: `docs/screenshots/phase-3/seed-1-
 **Known issues.** Jumping the camera to the surface can leave coarse parents visible until every selected child has uploaded; stepping the distance down does not. A chunk is about 2 ms in the worker, heavier than the old five-octave fBm. Chunk-edge normals are still one-sided. Skirt depth can hit the quarter-edge cap because the layer frequency is higher than the old noise scale of 1. The grain is faint at orbit distance.
 
 **Next.** Phase 4: atmosphere, water, and lighting.
+
+## 2026-11-28 — Triplanar grain stays on the planet
+
+**Changed.** The lit shader adds `uCameraWorld` to the camera-relative vertex before `sampleTriplanar`. The mesh manager writes that uniform from the same camera it subtracts when placing chunks. Orbiting leaves the grain on the same geographic point.
+
+**Unfinished.** The hook still samples placeholder grain, not a texture set.
+
+**Known issues.** Float32 error on the restored position is an ulp of the camera distance, well under the 90 m tile. The other phase 3 issues are unchanged.
+
+**Next.** Phase 4: atmosphere, water, and lighting.

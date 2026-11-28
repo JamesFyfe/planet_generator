@@ -3,6 +3,7 @@ import {
   LinearFilter,
   MeshStandardMaterial,
   RepeatWrapping,
+  Vector3,
   type IUniform,
 } from "three";
 
@@ -58,6 +59,8 @@ vec3 terrainAlbedo(float seaHeight, float slopeAngle, vec3 worldPos, vec3 worldN
 export interface TerrainReliefUniforms {
   uAmplitude: IUniform<number>;
   uRadius: IUniform<number>;
+  /** Planet-centered camera, meters. Added back onto the camera-relative vertex. */
+  uCameraWorld: IUniform<Vector3>;
   uTriplanarMap: IUniform<DataTexture>;
 }
 
@@ -76,9 +79,11 @@ function mustReplace(source: string, needle: string, replacement: string, label:
 
 /**
  * Patches the standard material so slope and sea height drive the albedo,
- * then multiplies a triplanar placeholder. World position comes from the
- * mesh matrix: chunk vertices are camera-relative meters, and a shared edge
- * reconstructs the same point from either chunk, so the texture does not seam.
+ * then multiplies a triplanar placeholder.
+ * Chunk vertices are camera-relative meters, which keeps the mesh matrix small.
+ * `uCameraWorld` is the same camera that was subtracted, so the sample is the
+ * planet-centered point. A shared edge subtracts and adds that one camera
+ * from either chunk, and the grain does not slide when the camera moves.
  */
 export function applyTerrainShader(
   shader: TerrainShaderSource,
@@ -86,12 +91,14 @@ export function applyTerrainShader(
 ): void {
   shader.uniforms.uAmplitude = uniforms.uAmplitude;
   shader.uniforms.uRadius = uniforms.uRadius;
+  shader.uniforms.uCameraWorld = uniforms.uCameraWorld;
   shader.uniforms.uTriplanarMap = uniforms.uTriplanarMap;
 
   shader.vertexShader = mustReplace(
     shader.vertexShader,
     "varying vec3 vViewPosition;",
-    `attribute float seaHeight;
+    `uniform vec3 uCameraWorld;
+attribute float seaHeight;
 attribute float slope;
 varying float vSeaHeight;
 varying float vSlope;
@@ -106,7 +113,7 @@ varying vec3 vViewPosition;`,
     `#include <begin_vertex>
 vSeaHeight = seaHeight;
 vSlope = slope;
-vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz + uCameraWorld;
 vWorldNormal = normalize(mat3(modelMatrix) * objectNormal);`,
     "begin_vertex",
   );
@@ -132,6 +139,13 @@ diffuseColor.rgb = terrainAlbedo(vSeaHeight, vSlope, vWorldPos, normalize(vWorld
 roughnessFactor = mix(0.9, 0.72, smoothstep(0.28, 0.72, vSlope));`,
     "roughnessmap_fragment",
   );
+}
+
+const cameraByMaterial = new WeakMap<MeshStandardMaterial, Vector3>();
+
+/** Planet-centered camera written into the shared terrain material, meters. */
+export function terrainCameraWorld(material: MeshStandardMaterial): Vector3 | undefined {
+  return cameraByMaterial.get(material);
 }
 
 function placeholderByte(x: number, y: number): number {
@@ -178,6 +192,7 @@ export function createTerrainMaterial(): {
   const uniforms: TerrainReliefUniforms = {
     uAmplitude: { value: 4_000 },
     uRadius: { value: 50_000 },
+    uCameraWorld: { value: new Vector3() },
     uTriplanarMap: { value: texture },
   };
   const material = new MeshStandardMaterial({
@@ -185,7 +200,8 @@ export function createTerrainMaterial(): {
     metalness: 0,
     vertexColors: false,
   });
-  material.customProgramCacheKey = () => "planet-terrain-slope-triplanar-v1";
+  material.customProgramCacheKey = () => "planet-terrain-slope-triplanar-v2";
+  cameraByMaterial.set(material, uniforms.uCameraWorld.value);
   material.onBeforeCompile = (shader) => {
     applyTerrainShader(shader, uniforms);
   };
