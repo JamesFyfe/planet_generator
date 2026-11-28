@@ -22,8 +22,8 @@ function presetValues(overrides: Partial<PlanetPresetValues> = {}): PlanetPreset
 }
 
 /**
- * Terrain-only looks. Seed stays with the caller so the same planet can be
- * restyled. Climate, plates, and features are later phases.
+ * Terrain looks. Seed stays with the caller so the same planet can be
+ * restyled. Climate sliders stay at their defaults. Plates and features are later phases.
  */
 export const PLANET_PRESETS = [
   {

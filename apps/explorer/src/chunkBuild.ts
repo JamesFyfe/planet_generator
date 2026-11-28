@@ -23,6 +23,10 @@ export function buildChunkPayload(
     indices: data.indices,
     seaRelativeHeight: data.seaRelativeHeight,
     slope: data.slope,
+    biomeId: data.biomeId,
+    biomeSecondary: data.biomeSecondary,
+    biomeWeight: data.biomeWeight,
+    materialId: data.materialId,
     origin: data.origin,
     boundingRadius: data.boundingRadius,
     lit: debugChannelMeta(channel).lit,
@@ -39,6 +43,10 @@ export function chunkPayloadBuffers(payload: ChunkMeshPayload): ArrayBuffer[] {
   ];
   if (payload.seaRelativeHeight) views.push(payload.seaRelativeHeight);
   if (payload.slope) views.push(payload.slope);
+  if (payload.biomeId) views.push(payload.biomeId);
+  if (payload.biomeSecondary) views.push(payload.biomeSecondary);
+  if (payload.biomeWeight) views.push(payload.biomeWeight);
+  if (payload.materialId) views.push(payload.materialId);
   return views.map((view) => {
     if (!(view.buffer instanceof ArrayBuffer)) {
       throw new Error("Chunk buffers must be transferable ArrayBuffers");

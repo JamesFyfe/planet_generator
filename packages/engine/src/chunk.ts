@@ -1,9 +1,9 @@
+import { sampleClimate } from "./climate/bake";
 import { CUBE_FACE_COUNT, cubeFacePoint, spherifyCube } from "./cubeSphere";
 import type { CubeFaceIndex } from "./cubeSphere";
 import type { Vec3 } from "./noise/domainWarp";
 import type { PlanetParams } from "./params";
-import { sampleDirection } from "./sample";
-import { terrainSkirtFrequency } from "./terrain";
+import { terrainHeight, terrainSkirtFrequency } from "./terrain";
 import { cross, dot, length, normalize, scale, sub } from "./vec3";
 
 /**
@@ -34,6 +34,18 @@ export interface ChunkData {
   seaRelativeHeight: Float32Array;
   /** Angle between the normal and the radial direction, radians. */
   slope: Float32Array;
+  /** Primary biome index. One value per vertex, skirts copied from the edge. */
+  biomeId: Float32Array;
+  biomeSecondary: Float32Array;
+  /** Weight of {@link biomeId}. The remainder is {@link biomeSecondary}. */
+  biomeWeight: Float32Array;
+  materialId: Float32Array;
+  /** Mean annual °C. */
+  temperature: Float32Array;
+  moisture: Float32Array;
+  rainfall: Float32Array;
+  /** Unit prevailing wind, xyz per vertex. */
+  wind: Float32Array;
   indices: Uint32Array;
   /**
    * Planet-centered reference point, meters, kept in float64.
@@ -193,6 +205,14 @@ export function buildChunk(params: PlanetParams, request: ChunkRequest): ChunkDa
   const world = new Float64Array(vertexCount * 3);
   const height = new Float32Array(vertexCount);
   const seaRelativeHeight = new Float32Array(vertexCount);
+  const biomeId = new Float32Array(vertexCount);
+  const biomeSecondary = new Float32Array(vertexCount);
+  const biomeWeight = new Float32Array(vertexCount);
+  const materialId = new Float32Array(vertexCount);
+  const temperature = new Float32Array(vertexCount);
+  const moisture = new Float32Array(vertexCount);
+  const rainfall = new Float32Array(vertexCount);
+  const wind = new Float32Array(vertexCount * 3);
   const directions: Vec3[] = new Array(surfaceCount);
 
   for (let j = 0; j < grid; j++) {
@@ -200,12 +220,12 @@ export function buildChunk(params: PlanetParams, request: ChunkRequest): ChunkDa
     for (let i = 0; i < grid; i++) {
       const u = u0 + ((u1 - u0) * i) / (grid - 1);
       const direction = spherifyCube(cubeFacePoint(request.face, u, v));
-      const sample = sampleDirection(params, direction);
-      const radial = Math.max(params.radius + sample.height, params.radius * 1e-4);
+      const relief = terrainHeight(params, direction);
+      const radial = Math.max(params.radius + relief, params.radius * 1e-4);
       const index = surfaceVertex(i, j);
       directions[index] = direction;
-      height[index] = sample.height;
-      seaRelativeHeight[index] = sample.seaRelativeHeight;
+      height[index] = relief;
+      seaRelativeHeight[index] = relief - params.seaLevel;
       writeVec3(world, index, scale(direction, radial));
     }
   }
@@ -223,6 +243,15 @@ export function buildChunk(params: PlanetParams, request: ChunkRequest): ChunkDa
       const direction = directions[index];
       if (!direction) throw new Error(`Missing chunk direction ${index}`);
       slope[index] = Math.acos(Math.min(1, Math.max(-1, dot(normal, direction))));
+      const climate = sampleClimate(params, direction, seaRelativeHeight[index] ?? 0, slope[index]);
+      biomeId[index] = climate.biomeId;
+      biomeSecondary[index] = climate.secondaryBiomeId;
+      biomeWeight[index] = climate.biomeWeight;
+      materialId[index] = climate.materialId;
+      temperature[index] = climate.temperature;
+      moisture[index] = climate.moisture;
+      rainfall[index] = climate.rainfall;
+      writeVec3(wind, index, { x: climate.windX, y: climate.windY, z: climate.windZ });
     }
   }
 
@@ -259,6 +288,18 @@ export function buildChunk(params: PlanetParams, request: ChunkRequest): ChunkDa
       height[skirt] = height[source] ?? 0;
       seaRelativeHeight[skirt] = seaRelativeHeight[source] ?? 0;
       slope[skirt] = slope[source] ?? 0;
+      biomeId[skirt] = biomeId[source] ?? 0;
+      biomeSecondary[skirt] = biomeSecondary[source] ?? 0;
+      biomeWeight[skirt] = biomeWeight[source] ?? 0;
+      materialId[skirt] = materialId[source] ?? 0;
+      temperature[skirt] = temperature[source] ?? 0;
+      moisture[skirt] = moisture[source] ?? 0;
+      rainfall[skirt] = rainfall[source] ?? 0;
+      const windSource = source * 3;
+      const windSkirt = skirt * 3;
+      wind[windSkirt] = wind[windSource] ?? 0;
+      wind[windSkirt + 1] = wind[windSource + 1] ?? 0;
+      wind[windSkirt + 2] = wind[windSource + 2] ?? 0;
     }
   }
 
@@ -312,6 +353,14 @@ export function buildChunk(params: PlanetParams, request: ChunkRequest): ChunkDa
     height,
     seaRelativeHeight,
     slope,
+    biomeId,
+    biomeSecondary,
+    biomeWeight,
+    materialId,
+    temperature,
+    moisture,
+    rainfall,
+    wind,
     indices,
     origin,
     boundingRadius: boundingRadius + 0.5,

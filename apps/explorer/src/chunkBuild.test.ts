@@ -18,9 +18,13 @@ describe("buildChunkPayload", () => {
     expect(first.boundingRadius).toBe(second.boundingRadius);
     expect(first.lit).toBe(true);
     const buffers = chunkPayloadBuffers(first);
-    expect(buffers).toHaveLength(6);
+    expect(buffers).toHaveLength(10);
     expect(first.slope).toBeDefined();
     expect(first.seaRelativeHeight).toBeDefined();
+    expect(first.biomeId).toBeDefined();
+    expect(first.biomeSecondary).toBeDefined();
+    expect(first.biomeWeight).toBeDefined();
+    expect(first.materialId).toBeDefined();
     expect(buffers.every((buffer) => buffer instanceof ArrayBuffer)).toBe(true);
   });
 

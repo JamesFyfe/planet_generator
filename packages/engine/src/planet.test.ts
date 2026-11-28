@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildPlanetMesh, spherifyCube } from "./cubeSphere";
 import { colorForChannel, DEBUG_CHANNEL_REGISTRY, isDebugChannelId } from "./debugChannels";
-import { createPlanet, defaultPlanetParams, type PlanetParams, type PlanetSample } from "./index";
+import { createPlanet, defaultPlanetParams, type PlanetParams } from "./index";
 import type { Vec3 } from "./noise/domainWarp";
 import { clamp, cross, dot, normalize, sub } from "./vec3";
 
@@ -90,8 +90,20 @@ describe("sample(dir)", () => {
     expect(createPlanet(defaultPlanetParams()).sample({ x: 0.2, y: -0.4, z: 0.5 }))
       .toMatchInlineSnapshot(`
       {
+        "biomeId": 0,
+        "biomeWeight": 1,
+        "continentality": 0,
         "height": -1764.4332593601798,
+        "materialId": 0,
+        "moisture": 0.8382872980833054,
+        "oceanDistance": 0,
+        "rainfall": 0,
         "seaRelativeHeight": -1764.4332593601798,
+        "secondaryBiomeId": 0,
+        "temperature": 17.225855159759522,
+        "windX": -0.9258295834048063,
+        "windY": -0.37663617304595737,
+        "windZ": 0.031381135189450834,
       }
     `);
   });
@@ -377,9 +389,16 @@ describe("debug channels", () => {
       "height",
       "slope",
       "lod",
+      "temperature",
+      "moisture",
+      "wind",
+      "rainfall",
+      "biome",
+      "material",
     ]);
     expect(isDebugChannelId("height")).toBe(true);
-    expect(isDebugChannelId("biome")).toBe(false);
+    expect(isDebugChannelId("biome")).toBe(true);
+    expect(isDebugChannelId("plates")).toBe(false);
   });
 
   it("colors ocean, shore, land, and high ground differently", () => {
@@ -427,6 +446,6 @@ describe("debug channels", () => {
   });
 });
 
-function landSample(seaRelativeHeight: number): PlanetSample {
+function landSample(seaRelativeHeight: number): { height: number; seaRelativeHeight: number } {
   return { height: seaRelativeHeight, seaRelativeHeight };
 }

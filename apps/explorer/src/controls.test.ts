@@ -25,6 +25,9 @@ describe("controlsFromRegistry", () => {
       "Detail",
       "Warp",
       "Surface",
+      "Atmosphere",
+      "Motion",
+      "Climate",
     ]);
   });
 });

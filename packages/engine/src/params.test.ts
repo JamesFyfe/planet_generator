@@ -31,9 +31,27 @@ describe("planet parameter registry", () => {
       "warpScale",
       "amplitude",
       "seaLevel",
+      "atmosphereDensity",
+      "axialTilt",
+      "starDistance",
+      "temperatureOffset",
+      "globalMoisture",
+      "windStrength",
+      "biomeSharpness",
     ]);
     expect(new Set(PLANET_PARAM_REGISTRY.map((param) => param.group))).toEqual(
-      new Set(["World", "Continents", "Mountains", "Hills", "Detail", "Warp", "Surface"]),
+      new Set([
+        "World",
+        "Continents",
+        "Mountains",
+        "Hills",
+        "Detail",
+        "Warp",
+        "Surface",
+        "Atmosphere",
+        "Motion",
+        "Climate",
+      ]),
     );
   });
 

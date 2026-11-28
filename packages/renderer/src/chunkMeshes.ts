@@ -27,6 +27,12 @@ export interface ChunkMeshPayload {
   seaRelativeHeight?: Float32Array;
   /** Slope in radians. One value per vertex. */
   slope?: Float32Array;
+  /** Primary biome index. */
+  biomeId?: Float32Array;
+  biomeSecondary?: Float32Array;
+  /** Weight of the primary biome. The remainder is the secondary. */
+  biomeWeight?: Float32Array;
+  materialId?: Float32Array;
   /** Planet-centered origin, meters. */
   origin: Vec3;
   boundingRadius: number;
@@ -95,7 +101,13 @@ function isPromise(
 export function createChunkMeshManager(
   parent: Group,
   source: ChunkMeshSource,
-  options?: { buildsPerFrame?: number },
+  options?: {
+    buildsPerFrame?: number;
+    biomePalette?: Uint8Array;
+    materialPalette?: Uint8Array;
+    biomeCount?: number;
+    materialCount?: number;
+  },
 ): ChunkMeshManager {
   const buildsPerFrame = options?.buildsPerFrame ?? DEFAULT_BUILDS_PER_FRAME;
   const resident = new Map<string, Resident>();
@@ -109,7 +121,16 @@ export function createChunkMeshManager(
     metalness: 0,
   });
   const unlitMaterial = new MeshBasicMaterial({ vertexColors: true });
-  const terrain = createTerrainMaterial();
+  const terrain = createTerrainMaterial(
+    options?.biomePalette && options.materialPalette
+      ? {
+          biomeRgba: options.biomePalette,
+          biomeCount: options.biomeCount ?? 1,
+          materialRgba: options.materialPalette,
+          materialCount: options.materialCount ?? 1,
+        }
+      : undefined,
+  );
   let generation = 0;
   let cacheKey = "";
   let frame: ChunkMeshFrame | null = null;
@@ -194,6 +215,23 @@ export function createChunkMeshManager(
     if (payload.seaRelativeHeight) {
       geometry.setAttribute("seaHeight", new BufferAttribute(payload.seaRelativeHeight, 1));
     }
+    const vertexCount = payload.positions.length / 3;
+    geometry.setAttribute(
+      "biomeId",
+      new BufferAttribute(payload.biomeId ?? new Float32Array(vertexCount), 1),
+    );
+    geometry.setAttribute(
+      "biomeSecondary",
+      new BufferAttribute(payload.biomeSecondary ?? new Float32Array(vertexCount), 1),
+    );
+    geometry.setAttribute(
+      "biomeWeight",
+      new BufferAttribute(payload.biomeWeight ?? new Float32Array(vertexCount).fill(1), 1),
+    );
+    geometry.setAttribute(
+      "materialId",
+      new BufferAttribute(payload.materialId ?? new Float32Array(vertexCount), 1),
+    );
     const mesh = new Mesh(
       geometry,
       shaded ? terrain.material : payload.lit ? litMaterial : unlitMaterial,
@@ -307,6 +345,8 @@ export function createChunkMeshManager(
       unlitMaterial.dispose();
       terrain.material.dispose();
       terrain.texture.dispose();
+      terrain.biomeTexture.dispose();
+      terrain.materialTexture.dispose();
       frame = null;
     },
   };

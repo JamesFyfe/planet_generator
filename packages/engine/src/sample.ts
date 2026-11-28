@@ -1,3 +1,4 @@
+import { sampleClimate } from "./climate/bake";
 import type { Vec3 } from "./noise/domainWarp";
 import type { PlanetParams } from "./params";
 import { terrainHeight } from "./terrain";
@@ -8,6 +9,24 @@ export interface PlanetSample {
   height: number;
   /** `height - seaLevel`, in meters. Negative is below sea level. */
   seaRelativeHeight: number;
+  /** Mean annual surface temperature, °C. */
+  temperature: number;
+  /** 0 dry, 1 saturated. */
+  moisture: number;
+  /** Moisture dropped on the coarse cell, in the same 0–1 units. */
+  rainfall: number;
+  windX: number;
+  windY: number;
+  windZ: number;
+  /** Meters to the nearest ocean cell on the climate bake. */
+  oceanDistance: number;
+  /** 0 on the coast, approaching 1 deep inland. */
+  continentality: number;
+  biomeId: number;
+  secondaryBiomeId: number;
+  /** Weight of {@link biomeId}. The remainder is the secondary biome. */
+  biomeWeight: number;
+  materialId: number;
 }
 
 export interface SurfaceFrame {
@@ -59,9 +78,11 @@ function assertRadius(radius: number): void {
 export function sampleDirection(params: PlanetParams, dir: Vec3): PlanetSample {
   const direction = normalize(dir);
   const height = noiseHeight(params, direction);
+  const seaRelativeHeight = height - params.seaLevel;
   return {
     height,
-    seaRelativeHeight: height - params.seaLevel,
+    seaRelativeHeight,
+    ...sampleClimate(params, direction, seaRelativeHeight),
   };
 }
 
@@ -87,15 +108,17 @@ export function surfaceFrame(params: PlanetParams, dir: Vec3): SurfaceFrame {
   assertRadius(params.radius);
   const direction = normalize(dir);
   const height = noiseHeight(params, direction);
-  const sample: PlanetSample = {
-    height,
-    seaRelativeHeight: height - params.seaLevel,
-  };
+  const seaRelativeHeight = height - params.seaLevel;
   const position = scale(direction, 1 + height / params.radius);
   const { tangent, bitangent } = tangentFrame(direction);
   const aheadT = displaced(params, add(direction, scale(tangent, NORMAL_EPSILON)));
   const aheadB = displaced(params, add(direction, scale(bitangent, NORMAL_EPSILON)));
   const normal = normalize(cross(sub(aheadT, position), sub(aheadB, position)));
   const slope = Math.acos(clamp(dot(normal, direction), -1, 1));
+  const sample: PlanetSample = {
+    height,
+    seaRelativeHeight,
+    ...sampleClimate(params, direction, seaRelativeHeight, slope),
+  };
   return { direction, position, normal, slope, sample };
 }

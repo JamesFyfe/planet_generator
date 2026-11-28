@@ -1,7 +1,10 @@
 import {
+  ClampToEdgeWrapping,
   DataTexture,
   LinearFilter,
+  LinearSRGBColorSpace,
   MeshStandardMaterial,
+  NearestFilter,
   RepeatWrapping,
   Vector3,
   type IUniform,
@@ -17,10 +20,23 @@ const FRAGMENT_HOOKS = /* glsl */ `
 uniform float uAmplitude;
 uniform float uRadius;
 uniform sampler2D uTriplanarMap;
+uniform sampler2D uBiomePalette;
+uniform sampler2D uMaterialPalette;
+uniform float uBiomeCount;
+uniform float uMaterialCount;
 varying float vSeaHeight;
 varying float vSlope;
+varying float vBiomeId;
+varying float vBiomeSecondary;
+varying float vBiomeWeight;
+varying float vMaterialId;
 varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
+
+vec3 paletteLookup(sampler2D tex, float count, float id) {
+  float u = (floor(id + 0.5) + 0.5) / max(count, 1.0);
+  return texture2D(tex, vec2(u, 0.5)).rgb;
+}
 
 vec3 sampleTriplanar(sampler2D tex, vec3 pos, vec3 normal, float tilesPerMeter) {
   vec3 blend = abs(normal);
@@ -33,20 +49,21 @@ vec3 sampleTriplanar(sampler2D tex, vec3 pos, vec3 normal, float tilesPerMeter) 
 }
 
 vec3 terrainAlbedo(float seaHeight, float slopeAngle, vec3 worldPos, vec3 worldNormal) {
-  float shoreWidth = max(min(uRadius * 0.005, uAmplitude * 0.08), 1.0);
   vec3 color;
   if (seaHeight < 0.0) {
     float depth = clamp(-seaHeight / max(uAmplitude, 1.0), 0.0, 1.0);
     color = mix(vec3(0.16, 0.48, 0.62), vec3(0.03, 0.12, 0.28), depth);
-  } else if (seaHeight < shoreWidth) {
-    color = vec3(0.84, 0.76, 0.52);
   } else {
-    float landSpan = max(uAmplitude - shoreWidth, 1.0);
-    float t = clamp((seaHeight - shoreWidth) / landSpan, 0.0, 1.0);
-    vec3 lowland = mix(vec3(0.22, 0.46, 0.22), vec3(0.40, 0.34, 0.24), clamp(t / 0.45, 0.0, 1.0));
-    vec3 highland = mix(vec3(0.40, 0.34, 0.24), vec3(0.93, 0.94, 0.95), clamp((t - 0.45) / 0.55, 0.0, 1.0));
-    color = t < 0.45 ? lowland : highland;
+    vec3 biome = mix(
+      paletteLookup(uBiomePalette, uBiomeCount, vBiomeSecondary),
+      paletteLookup(uBiomePalette, uBiomeCount, vBiomeId),
+      clamp(vBiomeWeight, 0.0, 1.0)
+    );
+    vec3 rock = paletteLookup(uMaterialPalette, uMaterialCount, vMaterialId);
+    color = mix(biome, rock, 0.28);
     color = mix(color, vec3(0.45, 0.40, 0.36), smoothstep(0.28, 0.72, slopeAngle));
+    float altitude = smoothstep(0.42, 0.9, clamp(seaHeight / max(uAmplitude, 1.0), 0.0, 1.0));
+    color = mix(color, vec3(0.93, 0.95, 0.97), altitude * 0.8);
   }
   vec3 grain = sampleTriplanar(uTriplanarMap, worldPos, worldNormal, 1.0 / 90.0);
   vec3 macro = sampleTriplanar(uTriplanarMap, worldPos, worldNormal, 1.0 / 4500.0);
@@ -62,6 +79,17 @@ export interface TerrainReliefUniforms {
   /** Planet-centered camera, meters. Added back onto the camera-relative vertex. */
   uCameraWorld: IUniform<Vector3>;
   uTriplanarMap: IUniform<DataTexture>;
+  uBiomePalette: IUniform<DataTexture>;
+  uMaterialPalette: IUniform<DataTexture>;
+  uBiomeCount: IUniform<number>;
+  uMaterialCount: IUniform<number>;
+}
+
+export interface TerrainPalettes {
+  biomeRgba: Uint8Array;
+  biomeCount: number;
+  materialRgba: Uint8Array;
+  materialCount: number;
 }
 
 export interface TerrainShaderSource {
@@ -93,6 +121,10 @@ export function applyTerrainShader(
   shader.uniforms.uRadius = uniforms.uRadius;
   shader.uniforms.uCameraWorld = uniforms.uCameraWorld;
   shader.uniforms.uTriplanarMap = uniforms.uTriplanarMap;
+  shader.uniforms.uBiomePalette = uniforms.uBiomePalette;
+  shader.uniforms.uMaterialPalette = uniforms.uMaterialPalette;
+  shader.uniforms.uBiomeCount = uniforms.uBiomeCount;
+  shader.uniforms.uMaterialCount = uniforms.uMaterialCount;
 
   shader.vertexShader = mustReplace(
     shader.vertexShader,
@@ -100,8 +132,16 @@ export function applyTerrainShader(
     `uniform vec3 uCameraWorld;
 attribute float seaHeight;
 attribute float slope;
+attribute float biomeId;
+attribute float biomeSecondary;
+attribute float biomeWeight;
+attribute float materialId;
 varying float vSeaHeight;
 varying float vSlope;
+varying float vBiomeId;
+varying float vBiomeSecondary;
+varying float vBiomeWeight;
+varying float vMaterialId;
 varying vec3 vWorldPos;
 varying vec3 vWorldNormal;
 varying vec3 vViewPosition;`,
@@ -113,6 +153,10 @@ varying vec3 vViewPosition;`,
     `#include <begin_vertex>
 vSeaHeight = seaHeight;
 vSlope = slope;
+vBiomeId = biomeId;
+vBiomeSecondary = biomeSecondary;
+vBiomeWeight = biomeWeight;
+vMaterialId = materialId;
 vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz + uCameraWorld;
 vWorldNormal = normalize(mat3(modelMatrix) * objectNormal);`,
     "begin_vertex",
@@ -183,27 +227,55 @@ export function createPlaceholderTexture(): DataTexture {
   return texture;
 }
 
-export function createTerrainMaterial(): {
+function paletteTexture(rgba: Uint8Array, count: number): DataTexture {
+  const width = Math.max(1, count);
+  const bytes = rgba.length >= width * 4 ? rgba : new Uint8Array(width * 4).fill(180);
+  const texture = new DataTexture(bytes, width, 1);
+  texture.wrapS = ClampToEdgeWrapping;
+  texture.wrapT = ClampToEdgeWrapping;
+  texture.magFilter = NearestFilter;
+  texture.minFilter = NearestFilter;
+  texture.generateMipmaps = false;
+  texture.colorSpace = LinearSRGBColorSpace;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+export function createTerrainMaterial(palettes?: TerrainPalettes): {
   material: MeshStandardMaterial;
   uniforms: TerrainReliefUniforms;
   texture: DataTexture;
+  biomeTexture: DataTexture;
+  materialTexture: DataTexture;
 } {
   const texture = createPlaceholderTexture();
+  const biomeTexture = paletteTexture(
+    palettes?.biomeRgba ?? new Uint8Array(4),
+    palettes?.biomeCount ?? 1,
+  );
+  const materialTexture = paletteTexture(
+    palettes?.materialRgba ?? new Uint8Array(4),
+    palettes?.materialCount ?? 1,
+  );
   const uniforms: TerrainReliefUniforms = {
     uAmplitude: { value: 4_000 },
     uRadius: { value: 50_000 },
     uCameraWorld: { value: new Vector3() },
     uTriplanarMap: { value: texture },
+    uBiomePalette: { value: biomeTexture },
+    uMaterialPalette: { value: materialTexture },
+    uBiomeCount: { value: palettes?.biomeCount ?? 1 },
+    uMaterialCount: { value: palettes?.materialCount ?? 1 },
   };
   const material = new MeshStandardMaterial({
     roughness: 0.9,
     metalness: 0,
     vertexColors: false,
   });
-  material.customProgramCacheKey = () => "planet-terrain-slope-triplanar-v2";
+  material.customProgramCacheKey = () => "planet-terrain-biome-triplanar-v3";
   cameraByMaterial.set(material, uniforms.uCameraWorld.value);
   material.onBeforeCompile = (shader) => {
     applyTerrainShader(shader, uniforms);
   };
-  return { material, uniforms, texture };
+  return { material, uniforms, texture, biomeTexture, materialTexture };
 }
