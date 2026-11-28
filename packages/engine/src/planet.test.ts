@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { buildPlanetMesh, spherifyCube } from "./cubeSphere";
 import { colorForChannel, DEBUG_CHANNEL_REGISTRY, isDebugChannelId } from "./debugChannels";
-import { createPlanet, defaultPlanetParams, type PlanetParams, type PlanetSample } from "./index";
+import {
+  createPlanet,
+  defaultPlanetParams,
+  terrainRelief,
+  type PlanetParams,
+  type PlanetSample,
+} from "./index";
 import type { Vec3 } from "./noise/domainWarp";
 import { clamp, cross, dot, normalize, sub } from "./vec3";
 
@@ -89,11 +95,17 @@ describe("sample(dir)", () => {
   it("locks a sample so the field cannot drift silently", () => {
     expect(createPlanet(defaultPlanetParams()).sample({ x: 0.2, y: -0.4, z: 0.5 }))
       .toMatchInlineSnapshot(`
-      {
-        "height": -1247.0666796644323,
-        "seaRelativeHeight": -1247.0666796644323,
-      }
-    `);
+        {
+          "boundary": 4,
+          "boundaryDistance": 0.016544163962826125,
+          "crust": 1,
+          "height": 6656.182988304317,
+          "hotspot": 0,
+          "plateId": 10,
+          "seaRelativeHeight": 6656.182988304317,
+          "uplift": 5903.24966796875,
+        }
+      `);
   });
 
   it("changes when the seed changes", () => {
@@ -109,13 +121,14 @@ describe("sample(dir)", () => {
     );
   });
 
-  it("returns height in meters within amplitude, and sea-relative height beside it", () => {
+  it("returns height in meters within the tectonic and noise span", () => {
     const params = defaultPlanetParams();
     const planet = createPlanet(params);
+    const span = terrainRelief(params);
     for (const dir of DIRECTIONS) {
       const sample = planet.sample(dir);
-      expect(sample.height).toBeGreaterThanOrEqual(-params.amplitude);
-      expect(sample.height).toBeLessThanOrEqual(params.amplitude);
+      expect(sample.height).toBeGreaterThanOrEqual(-span);
+      expect(sample.height).toBeLessThanOrEqual(span);
       expect(sample.seaRelativeHeight).toBe(sample.height - params.seaLevel);
     }
     const flooded = createPlanet(withParams({ seaLevel: 250 }));
@@ -126,9 +139,11 @@ describe("sample(dir)", () => {
 
   it("scales height with amplitude and follows noise scale and octaves", () => {
     const dir = { x: 0.3, y: 0.5, z: -0.2 };
+    const zero = createPlanet(withParams({ amplitude: 0 })).sample(dir).height;
     const full = createPlanet(defaultPlanetParams()).sample(dir).height;
     const half = createPlanet(withParams({ amplitude: 1_500 })).sample(dir).height;
-    expect(half * 2).toBeCloseTo(full, 8);
+    // Detail noise scales with amplitude. The tectonic shelf does not.
+    expect((half - zero) * 2).toBeCloseTo(full - zero, 6);
     expect(createPlanet(withParams({ radius: 8_000 })).sample(dir).height).toBe(full);
 
     const defaults = DIRECTIONS.map(
@@ -156,7 +171,9 @@ describe("sample(dir)", () => {
     // 1e-3 on the cube is a short step on the sphere. A lat/long or face-UV
     // seam jumps by a large fraction of the amplitude instead of a few meters.
     const delta = 1e-3;
-    const tolerance = 100;
+    // The two samples sit up to about 0.01 apart. A trench can slope by
+    // around a kilometer over that, while a broken shelf seam is several.
+    const tolerance = 1_200;
     for (const seed of [1, 42]) {
       const planet = createPlanet(withParams({ seed }));
       for (const [left, right] of edgeStraddles(delta)) {
@@ -168,7 +185,8 @@ describe("sample(dir)", () => {
   });
 
   it("has no discontinuity at the poles or across the antimeridian", () => {
-    const tolerance = 400;
+    // 0.02 rad can cross a trench. The check is still far below a broken pole seam.
+    const tolerance = 2_000;
     const angle = 0.02;
     for (const seed of [1, 42]) {
       const planet = createPlanet(withParams({ seed }));
@@ -181,7 +199,7 @@ describe("sample(dir)", () => {
       const eps = 1e-3;
       const east = planet.sample({ x: -Math.cos(eps), y: 0, z: Math.sin(eps) }).height;
       const west = planet.sample({ x: -Math.cos(eps), y: 0, z: -Math.sin(eps) }).height;
-      expect(Math.abs(east - west)).toBeLessThan(100);
+      expect(Math.abs(east - west)).toBeLessThan(400);
     }
   });
 });
@@ -271,15 +289,26 @@ describe("planet mesh", () => {
   });
 
   it("points finite-difference normals outward and winds triangles the same way", () => {
-    for (const amplitude of [0, 3_000]) {
-      const mesh = buildPlanetMesh(createPlanet(withParams({ amplitude })), "terrain", 4);
+    const cases = [
+      {
+        amplitude: 0,
+        continentalFraction: 0,
+        mountainHeight: 0,
+        riftDepth: 0,
+        minAlignment: 0.999,
+      },
+      // A coarse collision ridge can lean past 80 degrees and still face outward.
+      { amplitude: 3_000, minAlignment: 0.15 },
+    ];
+    for (const { minAlignment, ...overrides } of cases) {
+      const mesh = buildPlanetMesh(createPlanet(withParams(overrides)), "terrain", 4);
       const vertexCount = mesh.positions.length / 3;
       for (let index = 0; index < vertexCount; index++) {
         const position = readVec(mesh.positions, index);
         const normal = readVec(mesh.normals, index);
         expect(Number.isFinite(normal.x + normal.y + normal.z)).toBe(true);
         const alignment = dot(normal, normalize(position));
-        expect(alignment).toBeGreaterThan(amplitude === 0 ? 0.999 : 0.5);
+        expect(alignment).toBeGreaterThan(minAlignment);
       }
       for (let triangle = 0; triangle < mesh.indices.length; triangle += 3) {
         const p0 = readVec(mesh.positions, mesh.indices[triangle] ?? 0);
@@ -360,12 +389,17 @@ describe("planet mesh", () => {
 });
 
 describe("debug channels", () => {
-  it("registers terrain, height, slope, and lod", () => {
+  it("registers terrain, height, slope, lod, and the tectonic views", () => {
     expect(DEBUG_CHANNEL_REGISTRY.map((channel) => channel.id)).toEqual([
       "terrain",
       "height",
       "slope",
       "lod",
+      "plate",
+      "boundary",
+      "uplift",
+      "crust",
+      "hotspot",
     ]);
     expect(isDebugChannelId("height")).toBe(true);
     expect(isDebugChannelId("biome")).toBe(false);
@@ -374,25 +408,10 @@ describe("debug channels", () => {
   it("colors ocean, shore, land, and high ground differently", () => {
     const params = defaultPlanetParams();
     const slope = 0;
-    const ocean = colorForChannel(
-      "terrain",
-      params,
-      { height: -500, seaRelativeHeight: -500 },
-      slope,
-    );
-    const shore = colorForChannel("terrain", params, { height: 20, seaRelativeHeight: 20 }, slope);
-    const land = colorForChannel(
-      "terrain",
-      params,
-      { height: 1_200, seaRelativeHeight: 1_200 },
-      slope,
-    );
-    const high = colorForChannel(
-      "terrain",
-      params,
-      { height: 3_000, seaRelativeHeight: 3_000 },
-      slope,
-    );
+    const ocean = colorForChannel("terrain", params, paint(-500), slope);
+    const shore = colorForChannel("terrain", params, paint(20), slope);
+    const land = colorForChannel("terrain", params, paint(1_200), slope);
+    const high = colorForChannel("terrain", params, paint(3_000), slope);
     const colors = [ocean, shore, land, high];
     for (let i = 0; i < colors.length; i++) {
       for (let j = i + 1; j < colors.length; j++) {
@@ -407,8 +426,43 @@ describe("debug channels", () => {
       colorForChannel("height", params, landSample(2_000), 0),
     );
   });
+
+  it("gives plates, crust, and boundaries distinct colors", () => {
+    const params = defaultPlanetParams();
+    const base = paint(0);
+    expect(colorForChannel("plate", params, { ...base, plateId: 0 }, 0)).not.toEqual(
+      colorForChannel("plate", params, { ...base, plateId: 1 }, 0),
+    );
+    expect(colorForChannel("crust", params, { ...base, crust: 0 }, 0)).not.toEqual(
+      colorForChannel("crust", params, { ...base, crust: 1 }, 0),
+    );
+    expect(
+      colorForChannel("boundary", params, { ...base, boundary: 4, boundaryDistance: 0 }, 0),
+    ).not.toEqual(
+      colorForChannel("boundary", params, { ...base, boundary: 5, boundaryDistance: 0 }, 0),
+    );
+    expect(colorForChannel("uplift", params, { ...base, uplift: 2_000 }, 0)).not.toEqual(
+      colorForChannel("uplift", params, { ...base, uplift: -2_000 }, 0),
+    );
+    expect(colorForChannel("hotspot", params, { ...base, hotspot: 1 }, 0)).not.toEqual(
+      colorForChannel("hotspot", params, base, 0),
+    );
+  });
 });
 
+function paint(seaRelativeHeight: number): PlanetSample {
+  return {
+    height: seaRelativeHeight,
+    seaRelativeHeight,
+    plateId: 0,
+    crust: 1,
+    boundary: 0,
+    boundaryDistance: 1,
+    uplift: 0,
+    hotspot: 0,
+  };
+}
+
 function landSample(seaRelativeHeight: number): PlanetSample {
-  return { height: seaRelativeHeight, seaRelativeHeight };
+  return paint(seaRelativeHeight);
 }

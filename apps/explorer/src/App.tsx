@@ -11,8 +11,8 @@ import { PlanetScene } from "./PlanetScene";
 // The panel is a little wider so labels such as "Noise scale" are not cut off.
 const panelTheme = {
   sizes: {
-    rootWidth: "340px",
-    controlWidth: "200px",
+    rootWidth: "380px",
+    controlWidth: "190px",
     numberInputMinWidth: "76px",
   },
 };

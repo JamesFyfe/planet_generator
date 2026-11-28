@@ -14,7 +14,7 @@ describe("planet store", () => {
   it("writes a panel value into the store and clamps it", () => {
     usePlanetStore.getState().setParam("noiseScale", 2.5);
     expect(usePlanetStore.getState().params.noiseScale).toBe(2.5);
-    expect(usePlanetStore.getState().params.version).toBe(2);
+    expect(usePlanetStore.getState().params.version).toBe(3);
 
     usePlanetStore.getState().setParam("radius", 1);
     expect(usePlanetStore.getState().params.radius).toBe(5_000);

@@ -3,6 +3,8 @@ import type { CubeFaceIndex } from "./cubeSphere";
 import type { Vec3 } from "./noise/domainWarp";
 import type { PlanetParams } from "./params";
 import { sampleDirection } from "./sample";
+import type { GlobalBake } from "./tectonics/bake";
+import { tectonicReliefMeters } from "./tectonics/fields";
 import { cross, dot, length, normalize, scale, sub } from "./vec3";
 
 /**
@@ -109,8 +111,11 @@ function readVec3(buffer: Float64Array, index: number): Vec3 {
  * skirt out through the far side of the planet.
  */
 function skirtDepth(params: PlanetParams, edgeLength: number): number {
+  // Shelves and ranges are steeper than the detail noise, and the skirt has
+  // to cover that step at a one-level LOD crack.
   const gradient =
-    Math.abs(params.amplitude) * Math.max(params.noiseScale, 1) * (edgeLength / params.radius);
+    (Math.abs(params.amplitude) * Math.max(params.noiseScale, 1) + tectonicReliefMeters(params)) *
+    (edgeLength / params.radius);
   const depth = Math.max(edgeLength * 0.025, gradient * 2);
   return Math.min(depth, edgeLength * 0.25);
 }
@@ -178,7 +183,11 @@ function pushOutwardQuad(
  * what keeps the surface from jittering when the planet is tens of kilometers
  * from the scene origin.
  */
-export function buildChunk(params: PlanetParams, request: ChunkRequest): ChunkData {
+export function buildChunk(
+  params: PlanetParams,
+  request: ChunkRequest,
+  bake?: GlobalBake,
+): ChunkData {
   assertRequest(request);
   if (!Number.isFinite(params.radius) || params.radius <= 0) {
     throw new Error("radius must be a finite number > 0");
@@ -199,7 +208,7 @@ export function buildChunk(params: PlanetParams, request: ChunkRequest): ChunkDa
     for (let i = 0; i < grid; i++) {
       const u = u0 + ((u1 - u0) * i) / (grid - 1);
       const direction = spherifyCube(cubeFacePoint(request.face, u, v));
-      const sample = sampleDirection(params, direction);
+      const sample = sampleDirection(params, direction, bake);
       const radial = Math.max(params.radius + sample.height, params.radius * 1e-4);
       const index = surfaceVertex(i, j);
       directions[index] = direction;
@@ -319,4 +328,41 @@ export function buildChunk(params: PlanetParams, request: ChunkRequest): ChunkDa
 
 function angleBetween(a: Vec3, b: Vec3): number {
   return Math.acos(Math.min(1, Math.max(-1, dot(a, b))));
+}
+
+/** Unit direction of a chunk vertex, including skirt vertices copied from their edge. */
+export function chunkVertexDirection(request: ChunkRequest, index: number): Vec3 {
+  const grid = CHUNK_GRID_SIZE;
+  const surfaceCount = grid * grid;
+  const vertexCount = surfaceCount + grid * 4;
+  if (!Number.isInteger(index) || index < 0 || index >= vertexCount) {
+    throw new Error(`chunk vertex ${index} is outside 0..${vertexCount - 1}`);
+  }
+  let i: number;
+  let j: number;
+  if (index < surfaceCount) {
+    i = index % grid;
+    j = Math.floor(index / grid);
+  } else {
+    const alongEdge = index - surfaceCount;
+    const edge = Math.floor(alongEdge / grid);
+    const along = alongEdge - edge * grid;
+    if (edge === 0) {
+      i = 0;
+      j = along;
+    } else if (edge === 1) {
+      i = grid - 1;
+      j = along;
+    } else if (edge === 2) {
+      i = along;
+      j = 0;
+    } else {
+      i = along;
+      j = grid - 1;
+    }
+  }
+  const { u0, u1, v0, v1 } = chunkPatch(request);
+  const u = u0 + ((u1 - u0) * i) / (grid - 1);
+  const v = v0 + ((v1 - v0) * j) / (grid - 1);
+  return spherifyCube(cubeFacePoint(request.face, u, v));
 }

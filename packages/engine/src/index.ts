@@ -14,6 +14,24 @@ export { PLANET_MESH_SEGMENTS, buildPlanetMesh, CUBE_FACE_COUNT, spherifyCube } 
 export { CHUNK_GRID_SIZE, MAX_CHUNK_LOD, buildChunk, chunkKey } from "./chunk";
 export { DEFAULT_MAX_CHUNKS, DEFAULT_PIXEL_ERROR, MAX_LOD_GAP, selectChunks } from "./lod";
 export { colorChunk } from "./chunkColor";
+export { BAKE_RESOLUTION } from "./bake/cubemap";
+export {
+  adoptGlobalBake,
+  bakeInputKey,
+  createGlobalBake,
+  getGlobalBake,
+  hasGlobalBake,
+  serializeGlobalBake,
+} from "./tectonics/bake";
+export { terrainRelief } from "./tectonics/fields";
+export {
+  BoundaryKind,
+  CrustKind,
+  assignPlate,
+  classifyBoundary,
+  createPlateModel,
+  hotspotsWithin,
+} from "./tectonics/plates";
 
 export type { Prng } from "./prng";
 export type { ParamMeta, PlanetParamKey, PlanetParams } from "./params";
@@ -24,3 +42,5 @@ export type { Planet } from "./planet";
 export type { PlanetMeshData } from "./cubeSphere";
 export type { ChunkData, ChunkRequest } from "./chunk";
 export type { LodSelectionInput } from "./lod";
+export type { BakeSample, GlobalBake, GlobalBakePayload } from "./tectonics/bake";
+export type { BoundaryClass, Hotspot, Plate } from "./tectonics/plates";

@@ -75,19 +75,60 @@ function contribute(gradientIndex: number, x: number, y: number, z: number): num
   return t * t * gradDot(gradientIndex, x, y, z);
 }
 
-function rankedOffsets(
-  x0: number,
-  y0: number,
-  z0: number,
-): readonly [number, number, number, number, number, number] {
+/**
+ * Scratch for the simplex corner order. A fresh array per sample would
+ * allocate millions of times while a cubemap is filled; the caller reads
+ * the six entries before the next sample, and simplex does not recurse.
+ */
+const RANK = new Int8Array(6);
+
+function rankedOffsets(x0: number, y0: number, z0: number): Int8Array {
   if (x0 >= y0) {
-    if (y0 >= z0) return [1, 0, 0, 1, 1, 0];
-    if (x0 >= z0) return [1, 0, 0, 1, 0, 1];
-    return [0, 0, 1, 1, 0, 1];
+    if (y0 >= z0) {
+      RANK[0] = 1;
+      RANK[1] = 0;
+      RANK[2] = 0;
+      RANK[3] = 1;
+      RANK[4] = 1;
+      RANK[5] = 0;
+    } else if (x0 >= z0) {
+      RANK[0] = 1;
+      RANK[1] = 0;
+      RANK[2] = 0;
+      RANK[3] = 1;
+      RANK[4] = 0;
+      RANK[5] = 1;
+    } else {
+      RANK[0] = 0;
+      RANK[1] = 0;
+      RANK[2] = 1;
+      RANK[3] = 1;
+      RANK[4] = 0;
+      RANK[5] = 1;
+    }
+  } else if (y0 < z0) {
+    RANK[0] = 0;
+    RANK[1] = 0;
+    RANK[2] = 1;
+    RANK[3] = 0;
+    RANK[4] = 1;
+    RANK[5] = 1;
+  } else if (x0 < z0) {
+    RANK[0] = 0;
+    RANK[1] = 1;
+    RANK[2] = 0;
+    RANK[3] = 0;
+    RANK[4] = 1;
+    RANK[5] = 1;
+  } else {
+    RANK[0] = 0;
+    RANK[1] = 1;
+    RANK[2] = 0;
+    RANK[3] = 1;
+    RANK[4] = 1;
+    RANK[5] = 0;
   }
-  if (y0 < z0) return [0, 0, 1, 0, 1, 1];
-  if (x0 < z0) return [0, 1, 0, 0, 1, 1];
-  return [0, 1, 0, 1, 1, 0];
+  return RANK;
 }
 
 function permAt(table: Uint8Array, index: number): number {
@@ -105,7 +146,13 @@ export function simplex3(seed: number, x: number, y: number, z: number): number 
   const x0 = x - (i - unskew);
   const y0 = y - (j - unskew);
   const z0 = z - (k - unskew);
-  const [i1, j1, k1, i2, j2, k2] = rankedOffsets(x0, y0, z0);
+  const offset = rankedOffsets(x0, y0, z0);
+  const i1 = offset[0] ?? 0;
+  const j1 = offset[1] ?? 0;
+  const k1 = offset[2] ?? 0;
+  const i2 = offset[3] ?? 0;
+  const j2 = offset[4] ?? 0;
+  const k2 = offset[5] ?? 0;
 
   const ii = i & 255;
   const jj = j & 255;

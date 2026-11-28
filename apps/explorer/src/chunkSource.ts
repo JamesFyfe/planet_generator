@@ -16,7 +16,7 @@ export function createPlanetChunkSource(
       const channel = getChannel();
       const started = performance.now();
       const data = planet.buildChunk(request);
-      const colors = colorChunk(planet.params, data, channel);
+      const colors = colorChunk(planet.params, data, channel, planet.bake);
       return {
         request,
         positions: data.positions,

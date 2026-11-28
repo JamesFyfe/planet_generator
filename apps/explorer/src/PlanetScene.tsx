@@ -1,9 +1,10 @@
-import { createPlanet, selectChunks } from "@planet/engine";
+import { createPlanet, selectChunks, terrainRelief } from "@planet/engine";
 import type { Planet } from "@planet/engine";
 import { createChunkMeshManager } from "@planet/renderer";
 import type { ChunkMeshManager } from "@planet/renderer";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ensureGlobalBake } from "./bakeClient";
 import type { RefObject } from "react";
 import { DirectionalLight, Group, PerspectiveCamera, Vector3 } from "three";
 import { createPlanetChunkSource } from "./chunkSource";
@@ -39,7 +40,7 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
   const look = useMemo(() => new Vector3(), []);
   const orbit = useRef<OrbitState>({ theta: 0.75, phi: 0.95, distance: -1 });
   const radiusScale = useRef(0);
-  const planetRef = useRef<Planet>(createPlanet(displayParams));
+  const planetRef = useRef<Planet | null>(null);
   const channelRef = useRef(debugChannel);
   const managerRef = useRef<ChunkMeshManager | null>(null);
 
@@ -49,14 +50,33 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
     return () => window.clearTimeout(handle);
   }, [params, displayParams]);
 
-  const planet = useMemo(() => createPlanet(displayParams), [displayParams]);
-  planetRef.current = planet;
+  // The 80 ms pause is the regeneration debounce. The bake itself runs in a
+  // worker; chunk meshes keep the previous planet until that bake lands.
+  useEffect(() => {
+    let cancelled = false;
+    const params = displayParams;
+    void ensureGlobalBake(params)
+      .then(() => {
+        if (cancelled) return;
+        planetRef.current = createPlanet(params);
+      })
+      .catch((error: unknown) => {
+        console.error(error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [displayParams]);
   channelRef.current = debugChannel;
 
   const source = useMemo(
     () =>
       createPlanetChunkSource(
-        () => planetRef.current,
+        () => {
+          const planet = planetRef.current;
+          if (!planet) throw new Error("planet is not baked yet");
+          return planet;
+        },
         () => channelRef.current,
       ),
     [],
@@ -144,6 +164,10 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
   useFrame(() => {
     if (!(camera instanceof PerspectiveCamera)) return;
     const active = planetRef.current;
+    if (!active) {
+      if (statsRef.current) statsRef.current.textContent = "Baking plates…";
+      return;
+    }
     const radius = active.params.radius;
     const state = orbit.current;
     if (state.distance < 0 || radiusScale.current === 0) {
@@ -157,7 +181,8 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
     const unit = spherical(1, state.theta, state.phi);
     const ground = radius + active.sample(unit).height;
     const minDistance = ground + SURFACE_CLEARANCE_M;
-    const maxDistance = radius * MAX_RADIUS_SCALE + Math.abs(active.params.amplitude);
+    const relief = terrainRelief(active.params);
+    const maxDistance = radius * MAX_RADIUS_SCALE + relief;
     state.distance = Math.min(maxDistance, Math.max(minDistance, state.distance));
 
     const cameraWorld = spherical(state.distance, state.theta, state.phi);
@@ -167,10 +192,7 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
     camera.lookAt(-cameraWorld.x, -cameraWorld.y, -cameraWorld.z);
     const clearance = Math.max(1, state.distance - ground);
     camera.near = Math.max(0.2, Math.min(clearance * 0.1, 2_000));
-    camera.far = Math.max(
-      camera.near + 1,
-      state.distance + radius + Math.abs(active.params.amplitude) + 1_000,
-    );
+    camera.far = Math.max(camera.near + 1, state.distance + radius + relief + 1_000);
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
 
@@ -186,7 +208,7 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
       radius,
       fovY: (camera.fov * Math.PI) / 180,
       screenHeight: Math.max(1, size.height * gl.getPixelRatio()),
-      relief: Math.abs(active.params.amplitude),
+      relief,
     });
     const stats = manager.sync({
       selection,
@@ -194,7 +216,7 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
       camera,
       cacheKey: `${channelRef.current}:${JSON.stringify(active.params)}`,
       planetRadius: radius,
-      relief: Math.abs(active.params.amplitude),
+      relief,
     });
     if (statsRef.current) statsRef.current.textContent = formatChunkStats(stats);
   });

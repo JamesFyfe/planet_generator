@@ -24,6 +24,7 @@ export function domainWarp(
   y: number,
   z: number,
   options?: DomainWarpOptions,
+  out?: Vec3,
 ): Vec3 {
   const amplitude = options?.amplitude ?? 1;
   const frequency = options?.frequency ?? 1;
@@ -33,15 +34,23 @@ export function domainWarp(
   if (!Number.isFinite(frequency) || frequency <= 0) {
     throw new Error("frequency must be a finite number > 0");
   }
-  if (amplitude === 0) return { x, y, z };
+  if (amplitude === 0) {
+    if (out) {
+      out.x = x;
+      out.y = y;
+      out.z = z;
+      return out;
+    }
+    return { x, y, z };
+  }
 
   const base = normalizeSeed(seed);
   const sx = x * frequency;
   const sy = y * frequency;
   const sz = z * frequency;
-  return {
-    x: x + amplitude * simplex3(base, sx, sy, sz),
-    y: y + amplitude * simplex3((base + AXIS_Y) >>> 0, sx, sy, sz),
-    z: z + amplitude * simplex3((base + AXIS_Z) >>> 0, sx, sy, sz),
-  };
+  const result = out ?? { x: 0, y: 0, z: 0 };
+  result.x = x + amplitude * simplex3(base, sx, sy, sz);
+  result.y = y + amplitude * simplex3((base + AXIS_Y) >>> 0, sx, sy, sz);
+  result.z = z + amplitude * simplex3((base + AXIS_Z) >>> 0, sx, sy, sz);
+  return result;
 }

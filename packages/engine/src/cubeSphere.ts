@@ -42,8 +42,13 @@ function cubeFace(face: number): CubeFace {
 }
 
 /** Cube-face point with `u` and `v` in [-1, 1], before spherification. */
-export function cubeFacePoint(face: number, u: number, v: number): Vec3 {
-  return facePoint(cubeFace(face), u, v);
+export function cubeFacePoint(face: number, u: number, v: number, out?: Vec3): Vec3 {
+  const entry = cubeFace(face);
+  const target = out ?? { x: 0, y: 0, z: 0 };
+  target.x = entry.n[0] + entry.u[0] * u + entry.v[0] * v;
+  target.y = entry.n[1] + entry.u[1] * u + entry.v[1] * v;
+  target.z = entry.n[2] + entry.u[2] * u + entry.v[2] * v;
+  return target;
 }
 
 /** Inverse of {@link cubeFacePoint} for a point on that face. */
@@ -89,7 +94,7 @@ function facePoint(face: CubeFace, t: number, s: number): Vec3 {
  * edges; this polynomial keeps vertex spacing roughly even, and it is
  * continuous so shared edges land on the same point.
  */
-export function spherifyCube(point: Vec3): Vec3 {
+export function spherifyCube(point: Vec3, out?: Vec3): Vec3 {
   const x2 = point.x * point.x;
   const y2 = point.y * point.y;
   const z2 = point.z * point.z;
@@ -97,7 +102,11 @@ export function spherifyCube(point: Vec3): Vec3 {
   const x = point.x * Math.sqrt(Math.max(0, 1 - y2 / 2 - z2 / 2 + (y2 * z2) / 3));
   const y = point.y * Math.sqrt(Math.max(0, 1 - x2 / 2 - z2 / 2 + (x2 * z2) / 3));
   const z = point.z * Math.sqrt(Math.max(0, 1 - x2 / 2 - y2 / 2 + (x2 * y2) / 3));
-  return normalize({ x, y, z });
+  const target = out ?? { x: 0, y: 0, z: 0 };
+  target.x = x;
+  target.y = y;
+  target.z = z;
+  return normalize(target, target);
 }
 
 /**
@@ -137,7 +146,7 @@ export function buildPlanetMesh(
       const s = (j / segments) * 2 - 1;
       for (let i = 0; i <= segments; i++) {
         const t = (i / segments) * 2 - 1;
-        const frame = surfaceFrame(planet.params, spherifyCube(facePoint(face, t, s)));
+        const frame = surfaceFrame(planet.params, spherifyCube(facePoint(face, t, s)), planet.bake);
         const offset = vertex * 3;
         positions[offset] = frame.position.x;
         positions[offset + 1] = frame.position.y;

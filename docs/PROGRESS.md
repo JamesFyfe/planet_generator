@@ -61,3 +61,17 @@ Screenshots at seed 1, default params. Distances are from the planet center: orb
 **Known issues.** The orbit stops 0.05 rad short of either pole so the up projection does not vanish. Crossing that clamp ends the pitch instead of tumbling over the pole.
 
 **Next.** Unchanged.
+
+## 2026-11-28 — Phase 5 macro geology
+
+**Changed.** `PlanetParams` is version 3. The registry gained a Tectonics group: plate count, continental fraction, tectonic activity, mountain height, rift depth, boundary warp, and hotspot count. `createGlobalBake` fills a 512×512 cubemap per cube face once per parameter set. The explorer debounces edits by 80 ms, bakes in `bake.worker.ts`, and adopts the buffers before `createPlanet`. Chunks bilinear-sample that bake. Scalar channels wrap across cube edges; plate id, boundary kind, and crust stay nearest-texel.
+
+Plates are a domain-warped spherical Voronoi diagram. Each has an id, an Euler pole and rate, and continental or oceanic crust. Continental plates grow from a few shuffled kernels, and each grown plate is steered into its parent so that shared boundary is a collision. Boundary kind comes from relative motion: collision, subduction, rift, ridge, or transform. Height is the crust shelf plus that relief. The existing fBm stays as detail on top. Hotspots are seeded points other phases can query; they do not move height.
+
+Debug channels: plates, boundaries, uplift, crust, hotspots. Screenshots at seeds 1, 42, and 7: `docs/screenshots/phase-5/seed-1-plate.png`, `seed-1-boundary.png`, `seed-1-height.png`, and the same three views for seeds 42 and 7.
+
+**Unfinished.** No climate, biomes, rivers, or feature layers. Hotspots do not affect height. Chunk generation is still on the main thread; only the bake is in a worker. There is no chunk worker pool.
+
+**Known issues.** A 512 bake takes about 1.2 s, so a tectonic slider pauses the new planet until the worker finishes. The previous planet stays on screen. The cache holds four bakes, about 42 MB each. Coarse collision ridges can lean past 80° and still face outward. Relief is in meters, so the same mountains are subtle on a large planet and huge on a small one.
+
+**Next.** Phase 6 climate, or move chunk generation into a worker pool. The 16 ms chunk budget is already met on the main thread (about 2–4 ms per chunk after the bake is cached).

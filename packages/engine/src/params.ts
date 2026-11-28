@@ -1,4 +1,5 @@
-export const PLANET_PARAMS_VERSION = 2;
+/** 3 adds the tectonic sliders. The cubemap is keyed by those fields. */
+export const PLANET_PARAMS_VERSION = 3;
 
 export interface ParamMeta {
   key: string;
@@ -13,8 +14,9 @@ export interface ParamMeta {
 /**
  * Slider metadata is the only source for planet parameters. The explorer
  * builds its panel from this list; do not add a parallel set of controls.
- * Radius, amplitude, and sea level are meters. 50 km is the default radius,
- * with the plan's 5 km–500 km range. Octaves stay under the fBm cap of 16.
+ * Radius, amplitude, sea level, mountain height, and rift depth are meters.
+ * 50 km is the default radius, with the plan's 5 km–500 km range. Octaves
+ * stay under the fBm cap of 16.
  */
 export const PLANET_PARAM_REGISTRY = [
   {
@@ -70,6 +72,69 @@ export const PLANET_PARAM_REGISTRY = [
     default: 0,
     step: 100,
     group: "Surface",
+  },
+  {
+    key: "plateCount",
+    label: "Plate count",
+    min: 2,
+    max: 40,
+    default: 12,
+    step: 1,
+    group: "Tectonics",
+  },
+  {
+    key: "continentalFraction",
+    label: "Continental fraction",
+    min: 0,
+    max: 1,
+    default: 0.35,
+    step: 0.01,
+    group: "Tectonics",
+  },
+  {
+    key: "tectonicActivity",
+    label: "Tectonic activity",
+    min: 0,
+    max: 2,
+    default: 1,
+    step: 0.05,
+    group: "Tectonics",
+  },
+  {
+    key: "mountainHeight",
+    label: "Mountain height (m)",
+    min: 0,
+    max: 12_000,
+    default: 6_000,
+    step: 100,
+    group: "Tectonics",
+  },
+  {
+    key: "riftDepth",
+    label: "Rift depth (m)",
+    min: 0,
+    max: 8_000,
+    default: 2_500,
+    step: 100,
+    group: "Tectonics",
+  },
+  {
+    key: "boundaryWarp",
+    label: "Boundary warp",
+    min: 0,
+    max: 0.75,
+    default: 0.3,
+    step: 0.01,
+    group: "Tectonics",
+  },
+  {
+    key: "hotspotCount",
+    label: "Hotspot count",
+    min: 0,
+    max: 24,
+    default: 5,
+    step: 1,
+    group: "Tectonics",
   },
 ] as const satisfies readonly ParamMeta[];
 

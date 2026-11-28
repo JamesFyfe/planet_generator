@@ -9,7 +9,7 @@ import {
 } from "./index";
 
 describe("planet parameter registry", () => {
-  it("lists the phase 1 terrain parameters", () => {
+  it("lists the terrain and tectonic parameters", () => {
     expect(PLANET_PARAM_REGISTRY.map((param) => param.key)).toEqual([
       "seed",
       "radius",
@@ -17,6 +17,13 @@ describe("planet parameter registry", () => {
       "octaves",
       "amplitude",
       "seaLevel",
+      "plateCount",
+      "continentalFraction",
+      "tectonicActivity",
+      "mountainHeight",
+      "riftDepth",
+      "boundaryWarp",
+      "hotspotCount",
     ]);
   });
 
@@ -47,13 +54,20 @@ describe("planet parameter registry", () => {
     const params = defaultPlanetParams();
     expect(params.version).toBe(PLANET_PARAMS_VERSION);
     expect(params).toEqual({
-      version: 2,
+      version: 3,
       seed: 1,
       radius: 50_000,
       noiseScale: 1,
       octaves: 5,
       amplitude: 3_000,
       seaLevel: 0,
+      plateCount: 12,
+      continentalFraction: 0.35,
+      tectonicActivity: 1,
+      mountainHeight: 6_000,
+      riftDepth: 2_500,
+      boundaryWarp: 0.3,
+      hotspotCount: 5,
     });
     expect(JSON.parse(JSON.stringify(params))).toEqual(params);
   });
@@ -68,6 +82,14 @@ describe("planet parameter registry", () => {
     expect(clampPlanetParam("seaLevel", 250)).toBe(250);
     expect(clampPlanetParam("octaves", 0)).toBe(1);
     expect(clampPlanetParam("octaves", 40)).toBe(8);
+    expect(clampPlanetParam("plateCount", 0)).toBe(2);
+    expect(clampPlanetParam("plateCount", 12.2)).toBe(12.2);
+    expect(clampPlanetParam("continentalFraction", 2)).toBe(1);
+    expect(clampPlanetParam("tectonicActivity", -1)).toBe(0);
+    expect(clampPlanetParam("mountainHeight", 50_000)).toBe(12_000);
+    expect(clampPlanetParam("riftDepth", 100)).toBe(100);
+    expect(clampPlanetParam("boundaryWarp", 2)).toBe(0.75);
+    expect(clampPlanetParam("hotspotCount", -3)).toBe(0);
     expect(isPlanetParamKey("radius")).toBe(true);
     expect(isPlanetParamKey("seaLevel")).toBe(true);
     expect(isPlanetParamKey("biome")).toBe(false);

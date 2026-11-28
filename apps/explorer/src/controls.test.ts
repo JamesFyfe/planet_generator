@@ -46,6 +46,18 @@ describe("controlsFromRegistry", () => {
       step: 100,
       label: "Sea level (m)",
     });
-    expect(Object.keys(groups)).toEqual(["World", "Noise", "Surface"]);
+    expect(Object.keys(groups)).toEqual(["World", "Noise", "Surface", "Tectonics"]);
+    expect(groups.Tectonics?.plateCount).toMatchObject({
+      value: 12,
+      min: 2,
+      max: 40,
+      step: 1,
+    });
+    expect(groups.Tectonics?.continentalFraction).toMatchObject({
+      value: 0.35,
+      min: 0,
+      max: 1,
+    });
+    expect(groups.Tectonics?.hotspotCount).toMatchObject({ value: 5, min: 0, max: 24 });
   });
 });

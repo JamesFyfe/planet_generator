@@ -19,6 +19,20 @@ export function ParamsReadout() {
       <br />
       sea level <span data-testid="value-sea-level">{params.seaLevel}</span> m
       <br />
+      plates <span data-testid="value-plate-count">{params.plateCount}</span>
+      <br />
+      continents <span data-testid="value-continental-fraction">{params.continentalFraction}</span>
+      <br />
+      activity <span data-testid="value-tectonic-activity">{params.tectonicActivity}</span>
+      <br />
+      mountains <span data-testid="value-mountain-height">{params.mountainHeight}</span> m
+      <br />
+      rifts <span data-testid="value-rift-depth">{params.riftDepth}</span> m
+      <br />
+      warp <span data-testid="value-boundary-warp">{params.boundaryWarp}</span>
+      <br />
+      hotspots <span data-testid="value-hotspot-count">{params.hotspotCount}</span>
+      <br />
       view <span data-testid="value-debug-view">{debugChannel}</span>
     </p>
   );

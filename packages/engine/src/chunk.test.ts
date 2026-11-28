@@ -122,6 +122,17 @@ describe("buildChunk", () => {
     expectBoundaryClose(root, edgeIndices(CHUNK_GRID_SIZE - 1, null), neighbor);
   });
 
+  it("builds a chunk inside the frame budget once the bake exists", () => {
+    const planet = createPlanet(defaultPlanetParams());
+    planet.buildChunk({ face: 0, lod: 0, x: 0, y: 0 });
+    const started = performance.now();
+    planet.buildChunk({ face: 2, lod: 3, x: 2, y: 1 });
+    const elapsed = performance.now() - started;
+    // Phase 2's stall budget is 16 ms. The cubemap lookup stays out of this
+    // loop; the remaining cost is the detail noise. CI gets a little slack.
+    expect(elapsed).toBeLessThan(32);
+  });
+
   it("rejects a request outside the quadtree", () => {
     const planet = fastPlanet();
     expect(() =>
