@@ -68,8 +68,10 @@ Screenshots at seed 1, default params. Distances are from the planet center: orb
 
 `pnpm perf` builds the explorer and flies from orbit (3.2 radii) to the surface in headless Chromium. Baseline on this machine, seed 1, default params, 1280×720: average frame 16.70 ms, worst frame 33.30 ms, longest animation-frame task 18.93 ms. Handling a worker message peaked at 0.24 ms. The worst `selectChunkPlan` call was 9.6 ms and the worst mesh sync was 9.2 ms, so the 18.9 ms frame is that work plus the draw, not a chunk build on the main thread. The flight ended 40 m above the surface (camera distance 49,901 m on the 50 km planet). Four worker scripts loaded with HTTP 200. Screenshots: `docs/screenshots/phase-2/seed-1-worker-orbit.png`, `seed-1-worker-ground.png`.
 
-**Unfinished.** Vertex morphing between LODs is still absent, so a refine swaps the parent for its children in one frame. `selectChunks` still measures distance to the sphere of `radius`. The Vercel preview check is recorded below once the deployment is up.
+**Unfinished.** Vertex morphing between LODs is still absent, so a refine swaps the parent for its children in one frame. `selectChunks` still measures distance to the sphere of `radius`.
+
+**Vercel preview.** [PR 5](https://github.com/JamesFyfe/planet_generator/pull/5) deployed and the Vercel check is Ready: https://planet-generator-git-cursor-414472a1-jamesfyfes-projects.vercel.app. An anonymous request is a 302 to Vercel SSO (Deployment Protection), and the saved CLI token is rejected, so the worker response was not loaded from that URL. The same production build, served by `vite preview`, requested `chunk.worker-D9QwYHvV.js` four times and each response was HTTP 200.
 
 **Known issues.** One frame interval in the scripted flight was 33.3 ms; the average stayed on a 60 fps cadence. Headless Chromium was launched with Metal (`--use-angle=metal`). Coastlines are still a vertex-color band. Chunk-edge normals are still one-sided. The ground screenshot is a close fill of the surface (2,046 chunks, max LOD 12); cracks would show the dark background and do not.
 
-**Next.** Confirm the preview deployment serves the worker, then Phase 3 terrain fields.
+**Next.** Phase 3 terrain fields. A signed-in look at the preview would still be worth it, because Deployment Protection blocked the anonymous worker check.
