@@ -8,6 +8,7 @@ import type { RefObject } from "react";
 import { DirectionalLight, Group, PerspectiveCamera, Vector3 } from "three";
 import { createPlanetChunkSource } from "./chunkSource";
 import { formatChunkStats } from "./chunkStats";
+import { applyOrbitDrag, spherical, viewUp } from "./orbit";
 import { usePlanetStore } from "./store";
 
 const ORBIT_RADIUS_SCALE = 3.2;
@@ -24,27 +25,6 @@ interface OrbitState {
 interface PlanetCameraApi {
   setView: (view: Partial<OrbitState>) => void;
   getView: () => OrbitState;
-}
-
-function spherical(distance: number, theta: number, phi: number) {
-  const sinPhi = Math.sin(phi);
-  return {
-    x: distance * sinPhi * Math.cos(theta),
-    y: distance * Math.cos(phi),
-    z: distance * sinPhi * Math.sin(theta),
-  };
-}
-
-function viewUp(dirX: number, dirY: number, dirZ: number) {
-  const useX = Math.abs(dirY) > 0.9;
-  const worldX = useX ? 1 : 0;
-  const worldY = useX ? 0 : 1;
-  const parallel = worldX * dirX + worldY * dirY;
-  const x = worldX - dirX * parallel;
-  const y = worldY - dirY * parallel;
-  const z = -dirZ * parallel;
-  const len = Math.hypot(x, y, z) || 1;
-  return { x: x / len, y: y / len, z: z / len };
 }
 
 export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement | null> }) {
@@ -116,8 +96,7 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
       const dy = event.clientY - pointerY;
       pointerX = event.clientX;
       pointerY = event.clientY;
-      state.theta -= dx * 0.005;
-      state.phi = Math.min(Math.PI - 0.05, Math.max(0.05, state.phi + dy * 0.005));
+      applyOrbitDrag(state, dx, dy);
     };
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();

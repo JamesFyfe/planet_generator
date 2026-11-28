@@ -51,3 +51,13 @@ Screenshots at seed 1, default params. Distances are from the planet center: orb
 **Known issues.** A fast zoom builds the new leaves over later frames, so the horizon can be coarse until the budget catches up. The selection cap is 2048 leaves before the LOD-gap pass. Coastlines are still stair-stepped because the shore is a vertex-color band on the grid. Skirt depth is a bound, not a measured crack. Shared materials mean a lit and an unlit chunk cannot coexist; the cache key includes the debug channel, so a channel change rebuilds. drei is unused after orbit controls moved into the scene. `THREE.Clock` deprecation from drei is gone with that import.
 
 **Next.** Move `createPlanetChunkSource` behind a worker pool without changing the mesh manager. Add the scripted flight perf log after that, since the 16 ms stall budget depends on generation leaving the main thread.
+
+## 2026-11-27 — Orbit drag direction and pole roll
+
+**Changed.** Pointer drag follows the surface. A right drag increases theta and a down drag decreases phi, which is the direction that matches a camera fixed at the scene origin looking back at the planet. Screen-up is world +Y projected onto the view plane at every latitude. It used to switch to world +X once the view was within about 26° of a pole, and that swap rolled the camera by roughly a right angle in one frame.
+
+**Unfinished.** Same as the phase 2 note. Chunk-edge normals are still one-sided grid differences, so lit seams of several degrees remain on coarse boundaries.
+
+**Known issues.** The orbit stops 0.05 rad short of either pole so the up projection does not vanish. Crossing that clamp ends the pitch instead of tumbling over the pole.
+
+**Next.** Unchanged.
