@@ -1,6 +1,6 @@
-import { fbm } from "./noise/fractal";
 import type { Vec3 } from "./noise/domainWarp";
 import type { PlanetParams } from "./params";
+import { terrainHeight } from "./terrain";
 import { add, clamp, cross, dot, normalize, scale, sub } from "./vec3";
 
 export interface PlanetSample {
@@ -41,19 +41,13 @@ const Y_AXIS: Vec3 = { x: 0, y: 1, z: 0 };
 const X_AXIS: Vec3 = { x: 1, y: 0, z: 0 };
 
 /**
- * Layered noise at the unit-sphere direction, in meters.
+ * Layered terrain at the unit-sphere direction, in meters.
  * The field is a function of direction only, so cube edges and poles
  * are ordinary nearby points rather than a 2D parameterization seam.
- * Amplitude is applied once here; mesh displacement adds `height` to the radius.
+ * Relief is applied once inside {@link terrainHeight}; mesh displacement adds `height` to the radius.
  */
 function noiseHeight(params: PlanetParams, unitDir: Vec3): number {
-  // Slider and JSON values can land a hair off an integer. fBm requires a whole octave count.
-  const octaves = Math.round(params.octaves);
-  const noise = fbm(params.seed, unitDir.x, unitDir.y, unitDir.z, {
-    octaves,
-    frequency: params.noiseScale,
-  });
-  return noise * params.amplitude;
+  return terrainHeight(params, unitDir);
 }
 
 function assertRadius(radius: number): void {

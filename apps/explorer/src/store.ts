@@ -1,6 +1,10 @@
 import {
+  PLANET_PARAM_REGISTRY,
+  applyPlanetPreset,
   clampPlanetParam,
+  decodePlanetQuery,
   defaultPlanetParams,
+  planetPreset,
   type DebugChannelId,
   type PlanetParamKey,
   type PlanetParams,
@@ -10,14 +14,32 @@ import { create } from "zustand";
 interface PlanetState {
   params: PlanetParams;
   debugChannel: DebugChannelId;
+  /** Bumped when params change from outside the slider panel, so leva rebuilds. */
+  panelEpoch: number;
   setParam: (key: PlanetParamKey, value: number) => void;
   setDebugChannel: (channel: DebugChannelId) => void;
+  replaceParams: (params: PlanetParams) => void;
+  applyPreset: (id: string) => void;
   resetParams: () => void;
 }
 
+function initialParams(): PlanetParams {
+  if (typeof window === "undefined") return defaultPlanetParams();
+  return decodePlanetQuery(window.location.search);
+}
+
+function clampedParams(incoming: PlanetParams): PlanetParams {
+  const next = defaultPlanetParams();
+  for (const meta of PLANET_PARAM_REGISTRY) {
+    next[meta.key] = clampPlanetParam(meta.key, incoming[meta.key]);
+  }
+  return next;
+}
+
 export const usePlanetStore = create<PlanetState>((set) => ({
-  params: defaultPlanetParams(),
+  params: initialParams(),
   debugChannel: "terrain",
+  panelEpoch: 0,
   setParam: (key, value) => {
     const next = clampPlanetParam(key, value);
     set((state) => {
@@ -31,7 +53,18 @@ export const usePlanetStore = create<PlanetState>((set) => ({
       return { debugChannel: channel };
     });
   },
+  replaceParams: (params) => {
+    set((state) => ({ params: clampedParams(params), panelEpoch: state.panelEpoch + 1 }));
+  },
+  applyPreset: (id) => {
+    const preset = planetPreset(id);
+    if (!preset) return;
+    set((state) => ({
+      params: applyPlanetPreset(state.params, preset),
+      panelEpoch: state.panelEpoch + 1,
+    }));
+  },
   resetParams: () => {
-    set({ params: defaultPlanetParams() });
+    set((state) => ({ params: defaultPlanetParams(), panelEpoch: state.panelEpoch + 1 }));
   },
 }));

@@ -11,7 +11,20 @@ function withParams(overrides: Partial<PlanetParams>): PlanetParams {
 }
 
 function fastPlanet(seed = 1) {
-  return createPlanet(withParams({ seed, octaves: 1, amplitude: 1_000 }));
+  return createPlanet(
+    withParams({
+      seed,
+      amplitude: 1_000,
+      continentOctaves: 1,
+      mountainOctaves: 1,
+      hillOctaves: 1,
+      detailOctaves: 1,
+      mountainStrength: 0,
+      hillStrength: 0,
+      detailStrength: 0,
+      warpStrength: 0,
+    }),
+  );
 }
 
 function worldAt(chunk: ChunkData, index: number) {
@@ -82,7 +95,7 @@ describe("buildChunk", () => {
   });
 
   it("points normals outward and drops skirts toward the center", () => {
-    const planet = createPlanet(withParams({ octaves: 1, amplitude: 0 }));
+    const planet = createPlanet(withParams({ amplitude: 0 }));
     const chunk = planet.buildChunk({ face: 4, lod: 0, x: 0, y: 0 });
     const grid = CHUNK_GRID_SIZE;
     for (let index = 0; index < grid * grid; index += 17) {

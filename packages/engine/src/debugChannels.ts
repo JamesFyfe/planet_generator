@@ -1,6 +1,6 @@
 import type { PlanetParams } from "./params";
 import type { PlanetSample } from "./sample";
-import { clamp } from "./vec3";
+import { clamp, smoothstep } from "./vec3";
 
 export interface DebugChannelMeta {
   id: string;
@@ -49,6 +49,7 @@ const SHORE: Rgb = [0.84, 0.76, 0.52];
 const LAND: Rgb = [0.22, 0.46, 0.22];
 const HIGHLAND: Rgb = [0.4, 0.34, 0.24];
 const SNOW: Rgb = [0.93, 0.94, 0.95];
+const ROCK: Rgb = [0.45, 0.4, 0.36];
 
 const HEIGHT_LOW: Rgb = [0.04, 0.08, 0.38];
 const HEIGHT_MID: Rgb = [0.1, 0.72, 0.48];
@@ -80,12 +81,19 @@ const SHORE_AMPLITUDE_FRACTION = 0.08;
 /** Slopes of a few degrees are typical at the default amplitude. This maps them across the ramp. */
 const SLOPE_RAMP_RADIANS = 0.2;
 
+/**
+ * Rock starts around 16° and fully replaces the ground color by about 41°.
+ * The terrain shader uses the same window so the lit view matches this helper.
+ */
+const SLOPE_ROCK_START = 0.28;
+const SLOPE_ROCK_END = 0.72;
+
 function lerp(a: Rgb, b: Rgb, t: number): Rgb {
   const u = clamp(t, 0, 1);
   return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u];
 }
 
-function terrainColor(params: PlanetParams, sample: PlanetSample): Rgb {
+function terrainColor(params: PlanetParams, sample: PlanetSample, slope: number): Rgb {
   const shoreWidth = Math.max(
     Math.min(params.radius * SHORE_RADIUS_FRACTION, params.amplitude * SHORE_AMPLITUDE_FRACTION),
     1,
@@ -99,8 +107,11 @@ function terrainColor(params: PlanetParams, sample: PlanetSample): Rgb {
   }
   const landSpan = Math.max(params.amplitude - shoreWidth, 1);
   const t = clamp((sample.seaRelativeHeight - shoreWidth) / landSpan, 0, 1);
-  if (t < 0.45) return lerp(LAND, HIGHLAND, t / 0.45);
-  return lerp(HIGHLAND, SNOW, (t - 0.45) / 0.55);
+  const ground =
+    t < 0.45 ? lerp(LAND, HIGHLAND, t / 0.45) : lerp(HIGHLAND, SNOW, (t - 0.45) / 0.55);
+  // Steep faces shed the biome tint. Beaches and ocean stay put so a cliff
+  // at the waterline does not turn the shallows into rock.
+  return lerp(ground, ROCK, smoothstep(SLOPE_ROCK_START, SLOPE_ROCK_END, slope));
 }
 
 function heightColor(params: PlanetParams, sample: PlanetSample): Rgb {
@@ -126,7 +137,7 @@ export function colorForChannel(
 ): Rgb {
   switch (channel) {
     case "terrain":
-      return terrainColor(params, sample);
+      return terrainColor(params, sample, slope);
     case "height":
       return heightColor(params, sample);
     case "slope":

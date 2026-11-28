@@ -21,6 +21,8 @@ export function buildChunkPayload(
     normals: data.normals,
     colors: colorChunk(params, data, channel),
     indices: data.indices,
+    seaRelativeHeight: data.seaRelativeHeight,
+    slope: data.slope,
     origin: data.origin,
     boundingRadius: data.boundingRadius,
     lit: debugChannelMeta(channel).lit,
@@ -29,7 +31,15 @@ export function buildChunkPayload(
 }
 
 export function chunkPayloadBuffers(payload: ChunkMeshPayload): ArrayBuffer[] {
-  return [payload.positions, payload.normals, payload.colors, payload.indices].map((view) => {
+  const views: ArrayBufferView[] = [
+    payload.positions,
+    payload.normals,
+    payload.colors,
+    payload.indices,
+  ];
+  if (payload.seaRelativeHeight) views.push(payload.seaRelativeHeight);
+  if (payload.slope) views.push(payload.slope);
+  return views.map((view) => {
     if (!(view.buffer instanceof ArrayBuffer)) {
       throw new Error("Chunk buffers must be transferable ArrayBuffers");
     }

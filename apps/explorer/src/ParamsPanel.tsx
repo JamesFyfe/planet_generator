@@ -1,20 +1,23 @@
-import { isPlanetParamKey } from "@planet/engine";
+import { PLANET_PARAM_REGISTRY, isPlanetParamKey } from "@planet/engine";
 import { folder, useControls } from "leva";
-import { useMemo } from "react";
 import { controlsFromRegistry } from "./controls";
 import { usePlanetStore } from "./store";
 
 export function ParamsPanel() {
   const setParam = usePlanetStore((state) => state.setParam);
+  const panelEpoch = usePlanetStore((state) => state.panelEpoch);
 
-  const schema = useMemo(() => {
+  useControls(() => {
+    const current = usePlanetStore.getState().params;
     const grouped = controlsFromRegistry();
     const next: Record<string, ReturnType<typeof folder>> = {};
     for (const [groupName, controls] of Object.entries(grouped)) {
       const fields: Record<string, object> = {};
       for (const [key, spec] of Object.entries(controls)) {
+        const meta = PLANET_PARAM_REGISTRY.find((param) => param.key === key);
         fields[key] = {
           ...spec,
+          value: meta ? current[meta.key] : spec.value,
           onChange: (value: number) => {
             if (isPlanetParamKey(key)) setParam(key, value);
           },
@@ -25,8 +28,8 @@ export function ParamsPanel() {
       next[groupName] = folder(fields as Parameters<typeof folder>[0]);
     }
     return next;
-  }, [setParam]);
-
-  useControls(schema);
+    // panelEpoch is leva's dependency, not a React hook dependency. Changing it
+    // rebuilds the controls after a preset or a JSON load.
+  }, [panelEpoch]);
   return null;
 }

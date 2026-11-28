@@ -11,6 +11,7 @@ import {
 import type { Frustum, Group, PerspectiveCamera } from "three";
 import { chunkCovers, chunkMeshKey, chunksToDisplay } from "./chunkCoverage";
 import { cameraFrustum, horizonOccluder, isBeyondHorizon } from "./culling";
+import { createTerrainMaterial } from "./terrainMaterial";
 
 /**
  * Generation boundary. The explorer fulfills this from a worker pool.
@@ -22,6 +23,10 @@ export interface ChunkMeshPayload {
   normals: Float32Array;
   colors: Float32Array;
   indices: Uint32Array;
+  /** Sea-relative height, meters. One value per vertex. Drives the terrain shader. */
+  seaRelativeHeight?: Float32Array;
+  /** Slope in radians. One value per vertex. */
+  slope?: Float32Array;
   /** Planet-centered origin, meters. */
   origin: Vec3;
   boundingRadius: number;
@@ -104,6 +109,7 @@ export function createChunkMeshManager(
     metalness: 0,
   });
   const unlitMaterial = new MeshBasicMaterial({ vertexColors: true });
+  const terrain = createTerrainMaterial();
   let generation = 0;
   let cacheKey = "";
   let frame: ChunkMeshFrame | null = null;
@@ -182,7 +188,16 @@ export function createChunkMeshManager(
     geometry.setAttribute("normal", new BufferAttribute(payload.normals, 3));
     geometry.setAttribute("color", new BufferAttribute(payload.colors, 3));
     geometry.setIndex(new BufferAttribute(payload.indices, 1));
-    const mesh = new Mesh(geometry, payload.lit ? litMaterial : unlitMaterial);
+    const shaded =
+      payload.lit && payload.slope !== undefined && payload.seaRelativeHeight !== undefined;
+    if (payload.slope) geometry.setAttribute("slope", new BufferAttribute(payload.slope, 1));
+    if (payload.seaRelativeHeight) {
+      geometry.setAttribute("seaHeight", new BufferAttribute(payload.seaRelativeHeight, 1));
+    }
+    const mesh = new Mesh(
+      geometry,
+      shaded ? terrain.material : payload.lit ? litMaterial : unlitMaterial,
+    );
     mesh.name = `chunk:${key}`;
     mesh.frustumCulled = false;
     mesh.visible = false;
@@ -210,6 +225,15 @@ export function createChunkMeshManager(
   return {
     sync(next: ChunkMeshFrame): ChunkMeshStats {
       frame = next;
+      terrain.uniforms.uRadius.value = next.planetRadius;
+      terrain.uniforms.uAmplitude.value = next.relief;
+      // Same camera that place() subtracts. The shader adds it back so the
+      // grain stays on the planet instead of following the view.
+      terrain.uniforms.uCameraWorld.value.set(
+        next.cameraWorld.x,
+        next.cameraWorld.y,
+        next.cameraWorld.z,
+      );
       if (next.cacheKey !== cacheKey) {
         generation += 1;
         cacheKey = next.cacheKey;
@@ -281,6 +305,8 @@ export function createChunkMeshManager(
       clearResidents();
       litMaterial.dispose();
       unlitMaterial.dispose();
+      terrain.material.dispose();
+      terrain.texture.dispose();
       frame = null;
     },
   };

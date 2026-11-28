@@ -3,16 +3,16 @@ import { Leva } from "leva";
 import { useRef } from "react";
 import { DebugViewSelect } from "./DebugViewSelect";
 import { ParamsPanel } from "./ParamsPanel";
-import { ParamsReadout } from "./ParamsReadout";
 import { PlanetScene } from "./PlanetScene";
+import { SettingsBar } from "./SettingsBar";
 
 // The default number box is 38px, which clips to four digits. Seed goes to
 // 1_000_000 and radius to 500_000, so the box has to hold seven digits.
 // The panel is a little wider so labels such as "Noise scale" are not cut off.
 const panelTheme = {
   sizes: {
-    rootWidth: "340px",
-    controlWidth: "200px",
+    rootWidth: "400px",
+    controlWidth: "220px",
     numberInputMinWidth: "76px",
   },
 };
@@ -22,7 +22,11 @@ export function App() {
   return (
     <>
       <div className="viewport" role="application" aria-label="Planet viewport">
-        <Canvas camera={{ position: [0, 0, 0], fov: 45, near: 1, far: 1_000_000 }} dpr={[1, 2]}>
+        <Canvas
+          camera={{ position: [0, 0, 0], fov: 45, near: 1, far: 1_000_000 }}
+          dpr={[1, 2]}
+          gl={{ preserveDrawingBuffer: true }}
+        >
           <color attach="background" args={["#0b1020"]} />
           <PlanetScene statsRef={statsRef} />
         </Canvas>
@@ -34,7 +38,7 @@ export function App() {
         <pre ref={statsRef} data-testid="chunk-stats" />
         <p>Drag to look. Scroll to descend.</p>
       </div>
-      <ParamsReadout />
+      <SettingsBar />
     </>
   );
 }

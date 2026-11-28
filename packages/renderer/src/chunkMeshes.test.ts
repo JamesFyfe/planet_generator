@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { Group, PerspectiveCamera } from "three";
+import { Group, Mesh, MeshStandardMaterial, PerspectiveCamera } from "three";
 import type { ChunkRequest, Vec3 } from "@planet/engine";
 import { isBeyondHorizon } from "./culling";
 import { createChunkMeshManager, type ChunkMeshPayload, type ChunkMeshSource } from "./chunkMeshes";
+import { terrainCameraWorld } from "./terrainMaterial";
 
 const request = (face: ChunkRequest["face"], lod = 0, x = 0, y = 0): ChunkRequest => ({
   face,
@@ -223,6 +224,84 @@ describe("chunk mesh manager", () => {
     await Promise.resolve();
     manager.sync({ ...base, selection: [parent] });
     expect(visibleNames()).toEqual(["chunk:0:0:0:0"]);
+    manager.dispose();
+  });
+});
+
+describe("terrain shader attributes", () => {
+  it("binds slope and sea height and shades that chunk without vertex colors", () => {
+    const group = new Group();
+    const source: ChunkMeshSource = {
+      buildChunk: (chunk) => ({
+        ...payload({ x: 0, y: 0, z: 100 }, chunk),
+        slope: new Float32Array([0.1, 0.4, 0.8]),
+        seaRelativeHeight: new Float32Array([20, 400, -30]),
+      }),
+    };
+    const manager = createChunkMeshManager(group, source);
+    const cameraWorld = { x: 0, y: 0, z: 400 };
+    manager.sync({
+      selection: [request(0)],
+      cameraWorld,
+      camera: cameraLookingAt(cameraWorld),
+      cacheKey: "terrain",
+      planetRadius: 50_000,
+      relief: 4_000,
+    });
+    const mesh = group.children[0];
+    expect(mesh).toBeInstanceOf(Mesh);
+    if (!(mesh instanceof Mesh)) throw new Error("expected a mesh");
+    expect(mesh.geometry.getAttribute("slope")?.count).toBe(3);
+    expect(mesh.geometry.getAttribute("seaHeight")?.count).toBe(3);
+    expect(mesh.material).toBeInstanceOf(MeshStandardMaterial);
+    if (!(mesh.material instanceof MeshStandardMaterial)) throw new Error("expected a material");
+    expect(mesh.material.vertexColors).toBe(false);
+    manager.dispose();
+  });
+
+  it("adds the camera back onto the chunk so the triplanar point stays put", () => {
+    const group = new Group();
+    const origin = { x: 12_000, y: -40, z: 8_000 };
+    const source: ChunkMeshSource = {
+      buildChunk: (chunk) => ({
+        ...payload(origin, chunk),
+        slope: new Float32Array([0.1, 0.4, 0.8]),
+        seaRelativeHeight: new Float32Array([20, 400, -30]),
+      }),
+    };
+    const manager = createChunkMeshManager(group, source);
+    const first = { x: 10_000, y: -200, z: 40_000 };
+    const frame = {
+      selection: [request(0)],
+      cameraWorld: first,
+      camera: cameraLookingAt(first),
+      cacheKey: "terrain",
+      planetRadius: 50_000,
+      relief: 4_000,
+    };
+    manager.sync(frame);
+    const mesh = group.children[0];
+    if (!(mesh instanceof Mesh) || !(mesh.material instanceof MeshStandardMaterial)) {
+      throw new Error("expected a terrain mesh");
+    }
+    const camera = terrainCameraWorld(mesh.material);
+    if (!camera) throw new Error("expected a terrain camera uniform");
+    expect(mesh.position.x + camera.x).toBeCloseTo(origin.x, 3);
+    expect(mesh.position.y + camera.y).toBeCloseTo(origin.y, 3);
+    expect(mesh.position.z + camera.z).toBeCloseTo(origin.z, 3);
+
+    const second = { x: -80_000, y: 500, z: 12_000 };
+    manager.sync({
+      ...frame,
+      cameraWorld: second,
+      camera: cameraLookingAt(second),
+    });
+    expect(camera.x).toBeCloseTo(second.x, 3);
+    expect(camera.y).toBeCloseTo(second.y, 3);
+    expect(camera.z).toBeCloseTo(second.z, 3);
+    expect(mesh.position.x + camera.x).toBeCloseTo(origin.x, 3);
+    expect(mesh.position.y + camera.y).toBeCloseTo(origin.y, 3);
+    expect(mesh.position.z + camera.z).toBeCloseTo(origin.z, 3);
     manager.dispose();
   });
 });

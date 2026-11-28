@@ -3,6 +3,7 @@ import type { CubeFaceIndex } from "./cubeSphere";
 import type { Vec3 } from "./noise/domainWarp";
 import type { PlanetParams } from "./params";
 import { sampleDirection } from "./sample";
+import { terrainSkirtFrequency } from "./terrain";
 import { cross, dot, length, normalize, scale, sub } from "./vec3";
 
 /**
@@ -104,13 +105,13 @@ function readVec3(buffer: Float64Array, index: number): Vec3 {
 /**
  * Skirt length has to hide a one-level T-junction. The missing midpoint can
  * deviate by about a noise gradient times the chunk edge, which grows with
- * amplitude and noise scale, so a fixed fraction of the edge is not enough
+ * relief and the layer frequencies, so a fixed fraction of the edge is not enough
  * at the slider extremes. The cap keeps a wild gradient from pulling the
  * skirt out through the far side of the planet.
  */
 function skirtDepth(params: PlanetParams, edgeLength: number): number {
   const gradient =
-    Math.abs(params.amplitude) * Math.max(params.noiseScale, 1) * (edgeLength / params.radius);
+    Math.abs(params.amplitude) * terrainSkirtFrequency(params) * (edgeLength / params.radius);
   const depth = Math.max(edgeLength * 0.025, gradient * 2);
   return Math.min(depth, edgeLength * 0.25);
 }
