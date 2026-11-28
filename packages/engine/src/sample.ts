@@ -20,6 +20,11 @@ export interface SurfaceFrame {
   sample: PlanetSample;
 }
 
+/**
+ * Sampler surface used by the single-resolution mesh.
+ * `createPlanet` lives in `planet.ts` so chunk generation can call
+ * `sampleDirection` without a cycle through the chunk builder.
+ */
 export interface Planet {
   readonly params: PlanetParams;
   sample(dir: Vec3): PlanetSample;
@@ -99,15 +104,4 @@ export function surfaceFrame(params: PlanetParams, dir: Vec3): SurfaceFrame {
   const normal = normalize(cross(sub(aheadT, position), sub(aheadB, position)));
   const slope = Math.acos(clamp(dot(normal, direction), -1, 1));
   return { direction, position, normal, slope, sample };
-}
-
-export function createPlanet(params: PlanetParams): Planet {
-  const snapshot: PlanetParams = { ...params };
-  Object.freeze(snapshot);
-  return {
-    params: snapshot,
-    sample(dir: Vec3): PlanetSample {
-      return sampleDirection(snapshot, dir);
-    },
-  };
 }

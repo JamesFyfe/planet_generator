@@ -360,11 +360,12 @@ describe("planet mesh", () => {
 });
 
 describe("debug channels", () => {
-  it("registers terrain, height, and slope", () => {
+  it("registers terrain, height, slope, and lod", () => {
     expect(DEBUG_CHANNEL_REGISTRY.map((channel) => channel.id)).toEqual([
       "terrain",
       "height",
       "slope",
+      "lod",
     ]);
     expect(isDebugChannelId("height")).toBe(true);
     expect(isDebugChannelId("biome")).toBe(false);

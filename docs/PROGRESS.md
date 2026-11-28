@@ -39,3 +39,25 @@ Merged `d36bc5a` (Worley shell search, leva number-box width, CI `pnpm build`). 
 **Known issues.** A full rebuild is about 200 ms, so slider drags are debounced by 80 ms and the mesh updates when the drag pauses. At high noise scale the grid is coarser than the noise, and cube-face edges show up as aliasing rather than a crack in `sample`. Coastlines are stair-stepped at this resolution. Amplitude can exceed radius at the slider extremes and pull the surface through the center. The shore band is a small fraction of radius and amplitude so it reads from orbit; it is not a physical beach width. The checked-in screenshots were taken before the panel theme merge, so their radius box still shows four digits. drei still logs the `THREE.Clock` deprecation from three r187.
 
 **Next.** Phase 2: quadtree chunks, worker generation, skirts, and a floating origin with chunk-local positions.
+
+## 2026-11-27 — Phase 2 chunk quadtree and LOD (main thread)
+
+**Changed.** Each cube face is a quadtree. `Planet.buildChunk({ face, lod, x, y })` returns chunk-local positions, grid normals, height, sea-relative height, slope, indices, a float64 origin, and a bounding radius. The grid is `CHUNK_GRID_SIZE` (33). Edges grow a skirt so a one-level LOD gap does not crack. `selectChunks` splits the worst screen-space error first, leaves chunks outside the view cone coarse, keeps edge neighbors within one LOD, and does not import three.js. The renderer adds and removes meshes through `ChunkMeshSource` (payload or promise). The explorer implementation is synchronous. The camera stays at the scene origin and each mesh is placed at `origin - camera`. Frustum and horizon culling hide the rest. The overlay shows chunk count, visible count, last and average generation time, and max LOD. Debug channel `lod` colors chunks by level. The single-resolution mesh helper is unchanged and is no longer what the explorer draws.
+
+Screenshots at seed 1, default params. Distances are from the planet center: orbit 160 km (`seed-1-orbit-terrain.png`), approach 80 km (`seed-1-approach-terrain.png`), about 6 km above the surface (`seed-1-low-terrain.png` and `seed-1-low-height.png`), and 110 km for the LOD rings (`seed-1-low-lod.png`). Files are in `docs/screenshots/phase-2/`.
+
+**Unfinished.** No worker pool, LRU, or cancellation. Generation still runs on the main thread, 32 new meshes per frame once the first shell exists. Vertex morphing between LODs is not implemented. `selectChunks` measures distance to the sphere of `radius`, so a tall mountain is tessellated as if the camera were that peak's height above the mean sphere. The perf flight script is not in this half.
+
+**Known issues.** A fast zoom builds the new leaves over later frames, so the horizon can be coarse until the budget catches up. The selection cap is 2048 leaves before the LOD-gap pass. Coastlines are still stair-stepped because the shore is a vertex-color band on the grid. Skirt depth is a bound, not a measured crack. Shared materials mean a lit and an unlit chunk cannot coexist; the cache key includes the debug channel, so a channel change rebuilds. drei is unused after orbit controls moved into the scene. `THREE.Clock` deprecation from drei is gone with that import.
+
+**Next.** Move `createPlanetChunkSource` behind a worker pool without changing the mesh manager. Add the scripted flight perf log after that, since the 16 ms stall budget depends on generation leaving the main thread.
+
+## 2026-11-27 — Orbit drag direction and pole roll
+
+**Changed.** Pointer drag follows the surface. A right drag increases theta and a down drag decreases phi, which is the direction that matches a camera fixed at the scene origin looking back at the planet. Screen-up is world +Y projected onto the view plane at every latitude. It used to switch to world +X once the view was within about 26° of a pole, and that swap rolled the camera by roughly a right angle in one frame.
+
+**Unfinished.** Same as the phase 2 note. Chunk-edge normals are still one-sided grid differences, so lit seams of several degrees remain on coarse boundaries.
+
+**Known issues.** The orbit stops 0.05 rad short of either pole so the up projection does not vanish. Crossing that clamp ends the pitch instead of tumbling over the pole.
+
+**Next.** Unchanged.

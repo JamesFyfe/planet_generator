@@ -56,3 +56,28 @@ body,
   border-radius: 6px;
   padding: 4px 6px;
 }
+
+.chunk-stats {
+  position: fixed;
+  top: 64px;
+  left: 12px;
+  z-index: 1;
+  margin: 0;
+  padding: 8px 10px;
+  background: rgba(8, 12, 24, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+
+.chunk-stats pre {
+  margin: 0;
+  font: inherit;
+}
+
+.chunk-stats p {
+  margin: 6px 0 0;
+  opacity: 0.75;
+}
