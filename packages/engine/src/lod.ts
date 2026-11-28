@@ -5,7 +5,8 @@ import {
   cubeFaceIndex,
   cubeFacePoint,
   cubeFaceUv,
-  spherifyCube,
+  writeCubeFacePoint,
+  writeSpherifyCube,
 } from "./cubeSphere";
 import type { CubeFaceIndex } from "./cubeSphere";
 import type { Vec3 } from "./noise/domainWarp";
@@ -140,12 +141,21 @@ export function adjacentChunk(request: ChunkRequest, direction: EdgeDirection): 
   return chunkIndexAt(neighborFace, request.lod, uv.u, uv.v);
 }
 
+const cubeScratch = { x: 0, y: 0, z: 0 };
+const dirA = { x: 0, y: 0, z: 0 };
+const dirB = { x: 0, y: 0, z: 0 };
+
+function directionAt(face: number, u: number, v: number, out: Vec3): void {
+  writeCubeFacePoint(face, u, v, cubeScratch);
+  writeSpherifyCube(cubeScratch, out);
+}
+
 function chunkMetric(request: ChunkRequest, radius: number): ChunkMetric {
   const { u0, u1, v0, v1 } = chunkPatch(request);
   const midU = (u0 + u1) / 2;
   const midV = (v0 + v1) / 2;
-  const centerDir = spherifyCube(cubeFacePoint(request.face, midU, midV));
-  const center = scale(centerDir, radius);
+  directionAt(request.face, midU, midV, dirA);
+  const center = { x: dirA.x * radius, y: dirA.y * radius, z: dirA.z * radius };
   let geometricRadius = 0;
   const corners: readonly (readonly [number, number])[] = [
     [u0, v0],
@@ -154,13 +164,21 @@ function chunkMetric(request: ChunkRequest, radius: number): ChunkMetric {
     [u1, v1],
   ];
   for (const [u, v] of corners) {
-    const corner = scale(spherifyCube(cubeFacePoint(request.face, u, v)), radius);
-    geometricRadius = Math.max(geometricRadius, length(sub(corner, center)));
+    directionAt(request.face, u, v, dirB);
+    geometricRadius = Math.max(
+      geometricRadius,
+      Math.hypot(
+        dirB.x * radius - center.x,
+        dirB.y * radius - center.y,
+        dirB.z * radius - center.z,
+      ),
+    );
   }
   const step = (u1 - u0) / (CHUNK_GRID_SIZE - 1);
-  const d0 = spherifyCube(cubeFacePoint(request.face, u0, midV));
-  const d1 = spherifyCube(cubeFacePoint(request.face, Math.min(u0 + step, u1), midV));
-  const geometricError = radius * Math.acos(Math.min(1, Math.max(-1, dot(d0, d1))));
+  directionAt(request.face, u0, midV, dirA);
+  directionAt(request.face, Math.min(u0 + step, u1), midV, dirB);
+  const alignment = Math.min(1, Math.max(-1, dirA.x * dirB.x + dirA.y * dirB.y + dirA.z * dirB.z));
+  const geometricError = radius * Math.acos(alignment);
   return { center, geometricRadius, geometricError };
 }
 
@@ -213,6 +231,28 @@ function screenError(
   const metric = cachedMetric(request, input, cache);
   const distance = viewingDistance(input.cameraPosition, metric);
   return projectedPixels(metric.geometricError, distance, input.fovY, input.screenHeight);
+}
+
+export interface ChunkLodScore {
+  /** Projected size of one grid step, in pixels. Larger means generate sooner. */
+  screenError: number;
+  /** Meters from the camera to the mean-sphere patch. Smaller means generate sooner. */
+  distance: number;
+}
+
+/**
+ * Priority inputs for chunk generation.
+ * Same distance and pixel error `selectChunks` uses, so the worker queue
+ * spends its budget on the leaves the selector is most eager to split.
+ */
+export function chunkLodScore(request: ChunkRequest, input: LodSelectionInput): ChunkLodScore {
+  assertInput(input);
+  const metric = chunkMetric(request, input.radius);
+  const distance = viewingDistance(input.cameraPosition, metric);
+  return {
+    screenError: projectedPixels(metric.geometricError, distance, input.fovY, input.screenHeight),
+    distance,
+  };
 }
 
 /**
@@ -284,10 +324,6 @@ function findCovering(present: Set<string>, cell: ChunkRequest): ChunkRequest | 
   return null;
 }
 
-function distanceToChunk(request: ChunkRequest, input: LodSelectionInput): number {
-  return viewingDistance(input.cameraPosition, chunkMetric(request, input.radius));
-}
-
 interface Candidate {
   node: ChunkRequest;
   error: number;
@@ -335,14 +371,19 @@ function siftDown(heap: Candidate[], index: number): void {
   }
 }
 
+export interface ChunkPlan {
+  /** Leaves, nearest camera first. */
+  chunks: ChunkRequest[];
+  /** Screen error and distance already computed for those leaves. */
+  scores: ReadonlyMap<string, ChunkLodScore>;
+}
+
 /**
- * Leaves of one quadtree per cube face.
- * The split test is screen-space error: a chunk divides while one grid step
- * projects to more than `pixelError` pixels. The result is a complete cover
- * of the sphere (no overlaps) whose edge neighbors differ by at most one LOD.
- * Order is nearest camera first so a budgeted mesher can refine the foreground.
+ * Leaves of one quadtree per cube face, plus the screen-error scores the
+ * generator queue needs. Computing them again for every missing chunk was a
+ * multi-millisecond stall on the way to the ground.
  */
-export function selectChunks(input: LodSelectionInput): ChunkRequest[] {
+export function selectChunkPlan(input: LodSelectionInput): ChunkPlan {
   assertInput(input);
   const pixelError = input.pixelError ?? DEFAULT_PIXEL_ERROR;
   const maxLod = input.maxLod ?? MAX_CHUNK_LOD;
@@ -395,12 +436,38 @@ export function selectChunks(input: LodSelectionInput): ChunkRequest[] {
 
   const leaves = finished.concat(heap.map((candidate) => candidate.node));
   const restricted = enforceLodGap(leaves, maxLod);
+  const scores = new Map<string, ChunkLodScore>();
+  const scoreOf = (request: ChunkRequest): ChunkLodScore => {
+    const key = chunkKey(request);
+    const existing = scores.get(key);
+    if (existing) return existing;
+    const metric = cachedMetric(request, input, cache);
+    const distance = viewingDistance(input.cameraPosition, metric);
+    const score = {
+      screenError: projectedPixels(metric.geometricError, distance, input.fovY, input.screenHeight),
+      distance,
+    };
+    scores.set(key, score);
+    return score;
+  };
   restricted.sort((a, b) => {
-    const delta = distanceToChunk(a, input) - distanceToChunk(b, input);
-    if (delta !== 0) return delta;
+    const left = scoreOf(a);
+    const right = scoreOf(b);
+    if (left.distance !== right.distance) return left.distance - right.distance;
     const keyA = chunkKey(a);
     const keyB = chunkKey(b);
     return keyA < keyB ? -1 : keyA > keyB ? 1 : 0;
   });
-  return restricted;
+  return { chunks: restricted, scores };
+}
+
+/**
+ * Leaves of one quadtree per cube face.
+ * The split test is screen-space error: a chunk divides while one grid step
+ * projects to more than `pixelError` pixels. The result is a complete cover
+ * of the sphere (no overlaps) whose edge neighbors differ by at most one LOD.
+ * Order is nearest camera first so a budgeted mesher can refine the foreground.
+ */
+export function selectChunks(input: LodSelectionInput): ChunkRequest[] {
+  return selectChunkPlan(input).chunks;
 }

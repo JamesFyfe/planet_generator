@@ -3,7 +3,6 @@ import type { DebugChannelId } from "./debugChannels";
 import type { Vec3 } from "./noise/domainWarp";
 import { surfaceFrame } from "./sample";
 import type { Planet } from "./sample";
-import { normalize } from "./vec3";
 
 /** Segments along one edge of a cube face. Phase 1 is this resolution only. */
 export const PLANET_MESH_SEGMENTS = 128;
@@ -43,7 +42,17 @@ function cubeFace(face: number): CubeFace {
 
 /** Cube-face point with `u` and `v` in [-1, 1], before spherification. */
 export function cubeFacePoint(face: number, u: number, v: number): Vec3 {
-  return facePoint(cubeFace(face), u, v);
+  const out = { x: 0, y: 0, z: 0 };
+  writeCubeFacePoint(face, u, v, out);
+  return out;
+}
+
+/** Same point as {@link cubeFacePoint}, written into `out` so the LOD loop can reuse it. */
+export function writeCubeFacePoint(face: number, u: number, v: number, out: Vec3): void {
+  const entry = cubeFace(face);
+  out.x = entry.n[0] + entry.u[0] * u + entry.v[0] * v;
+  out.y = entry.n[1] + entry.u[1] * u + entry.v[1] * v;
+  out.z = entry.n[2] + entry.u[2] * u + entry.v[2] * v;
 }
 
 /** Inverse of {@link cubeFacePoint} for a point on that face. */
@@ -90,6 +99,13 @@ function facePoint(face: CubeFace, t: number, s: number): Vec3 {
  * continuous so shared edges land on the same point.
  */
 export function spherifyCube(point: Vec3): Vec3 {
+  const out = { x: 0, y: 0, z: 0 };
+  writeSpherifyCube(point, out);
+  return out;
+}
+
+/** Same map as {@link spherifyCube}, written into `out`. `point` and `out` may be the same object. */
+export function writeSpherifyCube(point: Vec3, out: Vec3): void {
   const x2 = point.x * point.x;
   const y2 = point.y * point.y;
   const z2 = point.z * point.z;
@@ -97,7 +113,14 @@ export function spherifyCube(point: Vec3): Vec3 {
   const x = point.x * Math.sqrt(Math.max(0, 1 - y2 / 2 - z2 / 2 + (y2 * z2) / 3));
   const y = point.y * Math.sqrt(Math.max(0, 1 - x2 / 2 - z2 / 2 + (x2 * z2) / 3));
   const z = point.z * Math.sqrt(Math.max(0, 1 - x2 / 2 - y2 / 2 + (x2 * y2) / 3));
-  return normalize({ x, y, z });
+  const magnitude = Math.hypot(x, y, z);
+  if (!Number.isFinite(magnitude) || magnitude === 0) {
+    throw new Error("direction must be a finite non-zero vector");
+  }
+  const scale = 1 / magnitude;
+  out.x = x * scale;
+  out.y = y * scale;
+  out.z = z * scale;
 }
 
 /**

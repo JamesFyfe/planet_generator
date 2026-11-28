@@ -1,6 +1,6 @@
 # Architecture
 
-Current contracts for Planet Engine. Phase 2 adds the chunk quadtree, screen-space LOD selection, and chunk meshes with a floating origin. Workers, the feature-layer interface, and the global bake are not contracts yet.
+Current contracts for Planet Engine. Phase 2 adds the chunk quadtree, screen-space LOD selection, chunk meshes with a floating origin, and a worker pool for chunk generation. The feature-layer interface and the global bake are not contracts yet.
 
 ## Layout
 
@@ -17,7 +17,7 @@ docs                ARCHITECTURE.md (this file) and PROGRESS.md (handoff notes).
 
 - `engine` must not import `renderer`, `apps`, React, three.js, or DOM APIs. It must run in Node and in Web Workers. ESLint enforces the import ban, and bans `Math.random` and `Date.now` inside `packages/engine`.
 - `renderer` must not import React or the explorer. It may import engine types only. `createPlanetMesh` and `createChunkMeshManager` upload buffers; they do not sample the planet.
-- `explorer` may import both packages. It owns UI state (zustand) and the leva panel. It calls `createPlanet`, `selectChunks`, and `planet.buildChunk`, and hands the typed arrays to the renderer.
+- `explorer` may import both packages. It owns UI state (zustand) and the leva panel. It calls `createPlanet` and `selectChunks`, and asks a worker pool for chunk meshes. The pool calls `planet.buildChunk` off the main thread and hands the typed arrays to the renderer.
 
 ## Determinism
 
@@ -25,7 +25,7 @@ Engine output is a pure function of `(params, seed, input)`.
 
 - `createPrng(seed)` is mulberry32. State is one uint32. `normalizeSeed` maps finite numbers into that uint32 space (`>>> 0`); non-finite seeds become `0`.
 - `simplex3`, `fbm`, `billow`, `ridgedMultifractal`, `domainWarp`, and `worley` all take that same seed. Permutation tables are cached per seed. The cache is a pure function of the seed, so call order does not change results.
-- `createPlanet(params).sample(dir)`, `buildPlanetMesh`, and `planet.buildChunk` use that noise. Tests lock identical output for identical inputs, including an inline snapshot of one sample. `selectChunks` is a pure function of the camera, radius, and screen parameters.
+- `createPlanet(params).sample(dir)`, `buildPlanetMesh`, and `planet.buildChunk` use that noise. Tests lock identical output for identical inputs, including an inline snapshot of one sample. `selectChunks` and `chunkLodScore` are pure functions of the camera, radius, and screen parameters.
 - `createPlanet` copies and freezes `params`, so later edits to the caller's object do not change the planet.
 
 ## Units
@@ -111,11 +111,11 @@ One quadtree per cube face. `ChunkRequest` is `{ face, lod, x, y }`. Face order 
 
 Skirts are a ring of vertices pulled toward the planet center. Their depth scales with the chunk edge and with `amplitude * noiseScale`, and is capped at a quarter of the edge so a steep gradient cannot pull the skirt through the planet.
 
-`selectChunks` returns the leaves that should exist this frame, nearest camera first. A chunk splits while one grid step projects to more than `DEFAULT_PIXEL_ERROR` (4) pixels and the patch can meet the view cone (the tighter of the field of view and the horizon). Chunks entirely outside that cone stay coarse, so the cover is still complete and the budget is spent on the visible surface. Edge neighbors, including across cube faces, stay within `MAX_LOD_GAP` (1). The distance test uses the mean sphere of `radius`. `relief` is accepted and checked, and is not added to every bounding sphere: doing that forced a max-LOD disk the size of the amplitude.
+`selectChunks` returns the leaves that should exist this frame, nearest camera first. `selectChunkPlan` returns those leaves and the screen-error scores already computed for them. A chunk splits while one grid step projects to more than `DEFAULT_PIXEL_ERROR` (4) pixels and the patch can meet the view cone (the tighter of the field of view and the horizon). Chunks entirely outside that cone stay coarse, so the cover is still complete and the budget is spent on the visible surface. Edge neighbors, including across cube faces, stay within `MAX_LOD_GAP` (1). The distance test uses the mean sphere of `radius`. `relief` is accepted and checked, and is not added to every bounding sphere: doing that forced a max-LOD disk the size of the amplitude. `chunkLodScore` reports that same screen-space error and distance so the generator can rank a queue without a second definition of the split.
 
-Generation stays behind `ChunkMeshSource` in the renderer. The explorer's `createPlanetChunkSource` calls `buildChunk` on the main thread and returns the payload directly. A worker can return a `Promise` of the same payload; `createChunkMeshManager` already accepts either, and nothing else in the scene has to change.
+Generation stays behind `ChunkMeshSource`. `createPlanetChunkSource` keeps an LRU of payloads (1024) and a pool of module workers, one fewer than `navigator.hardwareConcurrency`, clamped to 1–4. Each worker is `new Worker(new URL("./chunk.worker.ts", import.meta.url), { type: "module" })`, wrapped with Comlink. The worker builds the chunk, colors it, and transfers the position, normal, color, and index buffers. The queue runs the largest screen error first and the closer patch when those errors match. `retain(selection, view)` drops queued jobs that left the selection; an in-flight job finishes and may fill the cache, but its promise rejects so the mesh is not uploaded. A params or debug-channel change clears the cache and cancels outstanding jobs.
 
-The manager keeps at most `buildsPerFrame` new meshes per call (default 32) unless fewer than eight are missing, so a view can fill in without building the whole selection in one frame. The first shell still appears together. Selection order is nearest first, so the foreground arrives before the hidden chunks. It drops meshes that leave the selection. A `cacheKey` change (params or debug channel) throws the set away. Frustum and horizon tests set `mesh.visible`. The horizon occluder is `max(radius * 0.5, radius - relief)` so a mountain can still peek over the limb. Chunk vertices are not transformed by a large planet matrix: each mesh sits at `origin - camera`, both subtracted in float64, and the camera stays at the scene origin.
+The manager asks for up to 64 missing selected chunks per call, closest first, then uploads at most `buildsPerFrame` geometries per call (default 8). It does not drop a mesh the moment it leaves the selection. The draw set is the selected leaves that are ready, except a coarser ready ancestor stays up until every selected leaf under it is ready, and resident descendants stay up until a coarser selection is uploaded. The swap happens in one call, so the parent does not disappear while its children are still building. A `cacheKey` change throws the meshes and the payload cache away. Frustum and horizon tests set `mesh.visible`. The horizon occluder is `max(radius * 0.5, radius - relief)` so a mountain can still peek over the limb. Chunk vertices are not transformed by a large planet matrix: each mesh sits at `origin - camera`, both subtracted in float64, and the camera stays at the scene origin.
 
 ## Coordinates and precision
 
@@ -128,7 +128,7 @@ Do not invent these until the phase that needs them, and do not change them late
 - feature-layer interface
 - global bake and worker protocol
 
-The worker shape is fixed even though the pool is not: `ChunkMeshSource.buildChunk` may return a payload or a promise of one. Workers, when they arrive, must be constructed as `new Worker(new URL("./x.worker.ts", import.meta.url), { type: "module" })` so Vite bundles them. Do not use `SharedArrayBuffer` unless a later phase needs it. If it is added, COOP/COEP headers go in `vercel.json` at that point.
+`ChunkMeshSource.buildChunk` may return a payload or a promise of one. Workers are constructed as `new Worker(new URL("./chunk.worker.ts", import.meta.url), { type: "module" })` so Vite bundles them. Do not use `SharedArrayBuffer` unless a later phase needs it. If it is added, COOP/COEP headers go in `vercel.json` at that point.
 
 Collision must sample the engine height function. Rivers must come from the global bake.
 
@@ -156,5 +156,6 @@ Pushing `main` deploys to production. Do not push `main` directly. CI runs `pnpm
 - `pnpm lint` — eslint and prettier
 - `pnpm check` — typecheck, then lint, then test
 - `pnpm build` — typecheck packages and emit `apps/explorer/dist`
+- `pnpm perf` — build the explorer, then fly from orbit to the ground in headless Chromium and print average frame time, worst frame time, and the longest main-thread task
 
 TypeScript is strict in `tsconfig.base.json`. Vitest is configured in each package.

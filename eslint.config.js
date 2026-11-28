@@ -17,6 +17,18 @@ const engineBoundary = [
   "@planet/explorer/*",
 ];
 
+const scriptGlobals = {
+  URL: "readonly",
+  clearTimeout: "readonly",
+  console: "readonly",
+  document: "readonly",
+  performance: "readonly",
+  process: "readonly",
+  requestAnimationFrame: "readonly",
+  setTimeout: "readonly",
+  window: "readonly",
+};
+
 export default tseslint.config(
   {
     ignores: ["**/dist/**", "**/node_modules/**", "**/coverage/**"],
@@ -99,6 +111,12 @@ export default tseslint.config(
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "error",
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+    },
+  },
+  {
+    files: ["apps/explorer/scripts/**/*.mjs"],
+    languageOptions: {
+      globals: scriptGlobals,
     },
   },
 );

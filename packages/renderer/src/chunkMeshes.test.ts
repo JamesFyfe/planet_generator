@@ -143,14 +143,86 @@ describe("chunk mesh manager", () => {
     };
     expect(manager.sync(frame).chunkCount).toBe(0);
     expect(pending).toHaveLength(1);
-    manager.sync({ ...frame, cacheKey: "second" });
+    const second = { ...frame, cacheKey: "second" };
+    manager.sync(second);
     expect(pending).toHaveLength(2);
     pending[0]?.(payload({ x: 0, y: 100, z: 0 }, request(2)));
     await Promise.resolve();
+    manager.sync(second);
     expect(group.children).toHaveLength(0);
     pending[1]?.(payload({ x: 0, y: 100, z: 0 }, request(2)));
     await Promise.resolve();
+    expect(manager.sync(second).chunkCount).toBe(1);
     expect(group.children).toHaveLength(1);
+    manager.dispose();
+  });
+
+  it("keeps the parent visible until every child mesh is uploaded", async () => {
+    const group = new Group();
+    const pending = new Map<string, (payload: ChunkMeshPayload) => void>();
+    const source: ChunkMeshSource = {
+      buildChunk: (chunk) =>
+        new Promise<ChunkMeshPayload>((resolve) => {
+          pending.set(`${chunk.face}:${chunk.lod}:${chunk.x}:${chunk.y}`, resolve);
+        }),
+    };
+    const manager = createChunkMeshManager(group, source, { buildsPerFrame: 1 });
+    const cameraWorld = { x: 0, y: 0, z: 400 };
+    const base = {
+      cameraWorld,
+      camera: cameraLookingAt(cameraWorld),
+      cacheKey: "lod",
+      planetRadius: 100,
+      relief: 0,
+    };
+    const parent = request(0);
+    const children = [
+      request(0, 1, 0, 0),
+      request(0, 1, 1, 0),
+      request(0, 1, 0, 1),
+      request(0, 1, 1, 1),
+    ];
+    const visibleNames = () =>
+      group.children.filter((child) => child.visible).map((child) => child.name);
+
+    manager.sync({ ...base, selection: [parent] });
+    pending.get("0:0:0:0")?.(payload({ x: 0, y: 0, z: 100 }, parent));
+    await Promise.resolve();
+    manager.sync({ ...base, selection: [parent] });
+    expect(visibleNames()).toEqual(["chunk:0:0:0:0"]);
+
+    const [c0, c1, c2, c3] = children;
+    if (!c0 || !c1 || !c2 || !c3) throw new Error("expected four children");
+    manager.sync({ ...base, selection: children });
+    pending.get("0:1:0:0")?.(payload({ x: 0, y: 0, z: 100 }, c0));
+    pending.get("0:1:1:0")?.(payload({ x: 0, y: 0, z: 100 }, c1));
+    await Promise.resolve();
+    manager.sync({ ...base, selection: children });
+    expect(visibleNames()).toEqual(["chunk:0:0:0:0"]);
+
+    pending.get("0:1:0:1")?.(payload({ x: 0, y: 0, z: 100 }, c2));
+    pending.get("0:1:1:1")?.(payload({ x: 0, y: 0, z: 100 }, c3));
+    await Promise.resolve();
+    for (let step = 0; step < 4; step += 1) manager.sync({ ...base, selection: children });
+    expect(visibleNames().sort()).toEqual([
+      "chunk:0:1:0:0",
+      "chunk:0:1:0:1",
+      "chunk:0:1:1:0",
+      "chunk:0:1:1:1",
+    ]);
+    expect(group.children.some((child) => child.name === "chunk:0:0:0:0")).toBe(false);
+
+    manager.sync({ ...base, selection: [parent] });
+    expect(visibleNames().sort()).toEqual([
+      "chunk:0:1:0:0",
+      "chunk:0:1:0:1",
+      "chunk:0:1:1:0",
+      "chunk:0:1:1:1",
+    ]);
+    pending.get("0:0:0:0")?.(payload({ x: 0, y: 0, z: 100 }, parent));
+    await Promise.resolve();
+    manager.sync({ ...base, selection: [parent] });
+    expect(visibleNames()).toEqual(["chunk:0:0:0:0"]);
     manager.dispose();
   });
 });

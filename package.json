@@ -13,7 +13,8 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "typecheck": "pnpm --filter @planet/engine --filter @planet/renderer --filter @planet/explorer typecheck",
-    "check": "pnpm typecheck && pnpm lint && pnpm test"
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "perf": "pnpm --filter @planet/explorer build && pnpm --filter @planet/explorer exec playwright install chromium && pnpm --filter @planet/explorer perf"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { chunkKey, chunkPatch } from "./chunk";
 import type { ChunkRequest } from "./chunk";
 import { CUBE_FACE_COUNT } from "./cubeSphere";
-import { adjacentChunk, MAX_LOD_GAP, selectChunks } from "./lod";
+import { adjacentChunk, chunkLodScore, MAX_LOD_GAP, selectChunks } from "./lod";
 import type { LodSelectionInput } from "./lod";
 
 const RADIUS = 50_000;
@@ -134,5 +134,20 @@ describe("selectChunks", () => {
 
   it("rejects a non-positive radius", () => {
     expect(() => selectChunks(inputAt(RADIUS, { radius: 0 }))).toThrow(/radius/);
+  });
+});
+
+describe("chunkLodScore", () => {
+  const coarse: ChunkRequest = { face: 0, lod: 0, x: 0, y: 0 };
+  const fine: ChunkRequest = { face: 0, lod: 4, x: 0, y: 0 };
+
+  it("is deterministic and ranks a coarse nearby patch above a fine or distant one", () => {
+    const near = inputAt(RADIUS + 2_000);
+    const far = inputAt(RADIUS * 6);
+    const first = chunkLodScore(coarse, near);
+    expect(chunkLodScore(coarse, near)).toEqual(first);
+    expect(first.screenError).toBeGreaterThan(chunkLodScore(fine, near).screenError);
+    expect(first.screenError).toBeGreaterThan(chunkLodScore(coarse, far).screenError);
+    expect(first.distance).toBeLessThan(chunkLodScore(coarse, far).distance);
   });
 });

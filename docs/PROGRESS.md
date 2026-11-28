@@ -61,3 +61,15 @@ Screenshots at seed 1, default params. Distances are from the planet center: orb
 **Known issues.** The orbit stops 0.05 rad short of either pole so the up projection does not vanish. Crossing that clamp ends the pitch instead of tumbling over the pole.
 
 **Next.** Unchanged.
+
+## 2026-11-27 — Phase 2 worker pool
+
+**Changed.** Chunk meshes are built in a Comlink pool (`apps/explorer/src/chunk.worker.ts`), constructed with `new Worker(new URL("./chunk.worker.ts", import.meta.url), { type: "module" })`. The production build emits `chunk.worker-*.js`. The pool is one core fewer than `hardwareConcurrency`, clamped to 1–4. Jobs are ordered by the screen error and distance `selectChunkPlan` already computed (largest error, then closest). `retain` cancels queued work that left the selection; an in-flight job can still fill the LRU, and its promise rejects so the mesh is not uploaded. The LRU holds 1024 payloads. Position, normal, color, and index buffers are transferred. The mesh manager keeps a coarser chunk on screen until every selected replacement is uploaded, and keeps finer meshes until a coarser selection is uploaded. It requests at most 64 new chunks a frame and uploads at most 8.
+
+`pnpm perf` builds the explorer and flies from orbit (3.2 radii) to the surface in headless Chromium. Baseline on this machine, seed 1, default params, 1280×720: average frame 16.70 ms, worst frame 33.30 ms, longest animation-frame task 18.93 ms. Handling a worker message peaked at 0.24 ms. The worst `selectChunkPlan` call was 9.6 ms and the worst mesh sync was 9.2 ms, so the 18.9 ms frame is that work plus the draw, not a chunk build on the main thread. The flight ended 40 m above the surface (camera distance 49,901 m on the 50 km planet). Four worker scripts loaded with HTTP 200. Screenshots: `docs/screenshots/phase-2/seed-1-worker-orbit.png`, `seed-1-worker-ground.png`.
+
+**Unfinished.** Vertex morphing between LODs is still absent, so a refine swaps the parent for its children in one frame. `selectChunks` still measures distance to the sphere of `radius`. The Vercel preview check is recorded below once the deployment is up.
+
+**Known issues.** One frame interval in the scripted flight was 33.3 ms; the average stayed on a 60 fps cadence. Headless Chromium was launched with Metal (`--use-angle=metal`). Coastlines are still a vertex-color band. Chunk-edge normals are still one-sided. The ground screenshot is a close fill of the surface (2,046 chunks, max LOD 12); cracks would show the dark background and do not.
+
+**Next.** Confirm the preview deployment serves the worker, then Phase 3 terrain fields.
