@@ -8,7 +8,7 @@ import type { PlanetSample } from "./sample";
 export interface Planet {
   readonly params: PlanetParams;
   sample(dir: Vec3): PlanetSample;
-  /** Main-thread chunk mesh. A worker can call the same `buildChunk` function. */
+  /** Chunk mesh for one node. Pure, so a worker can call the same function. */
   buildChunk(request: ChunkRequest): ChunkData;
 }
 

@@ -12,7 +12,14 @@ export { DEBUG_CHANNEL_REGISTRY, isDebugChannelId, debugChannelMeta } from "./de
 export { createPlanet } from "./planet";
 export { PLANET_MESH_SEGMENTS, buildPlanetMesh, CUBE_FACE_COUNT, spherifyCube } from "./cubeSphere";
 export { CHUNK_GRID_SIZE, MAX_CHUNK_LOD, buildChunk, chunkKey } from "./chunk";
-export { DEFAULT_MAX_CHUNKS, DEFAULT_PIXEL_ERROR, MAX_LOD_GAP, selectChunks } from "./lod";
+export {
+  DEFAULT_MAX_CHUNKS,
+  DEFAULT_PIXEL_ERROR,
+  MAX_LOD_GAP,
+  chunkLodScore,
+  selectChunkPlan,
+  selectChunks,
+} from "./lod";
 export { colorChunk } from "./chunkColor";
 
 export type { Prng } from "./prng";
@@ -23,4 +30,4 @@ export type { PlanetSample } from "./sample";
 export type { Planet } from "./planet";
 export type { PlanetMeshData } from "./cubeSphere";
 export type { ChunkData, ChunkRequest } from "./chunk";
-export type { LodSelectionInput } from "./lod";
+export type { ChunkLodScore, ChunkPlan, LodSelectionInput } from "./lod";

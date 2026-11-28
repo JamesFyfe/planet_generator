@@ -5,14 +5,16 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  Sphere,
+  Vector3,
 } from "three";
-import type { Group, PerspectiveCamera } from "three";
-import { horizonOccluder, isBeyondHorizon, isSphereInFrustum } from "./culling";
+import type { Frustum, Group, PerspectiveCamera } from "three";
+import { chunkCovers, chunkMeshKey, chunksToDisplay } from "./chunkCoverage";
+import { cameraFrustum, horizonOccluder, isBeyondHorizon } from "./culling";
 
 /**
- * Generation boundary. The explorer implements this on the main thread today.
- * A worker pool can return a Promise instead; the mesh manager already waits
- * for it, so the scene graph does not need to change.
+ * Generation boundary. The explorer fulfills this from a worker pool.
+ * A synchronous source is still accepted so tests can build a mesh inline.
  */
 export interface ChunkMeshPayload {
   request: ChunkRequest;
@@ -57,17 +59,21 @@ export interface ChunkMeshManager {
 
 interface Resident {
   key: string;
+  request: ChunkRequest;
   mesh: Mesh;
   origin: Vec3;
   boundingRadius: number;
 }
 
-/** New meshes per call once the first shell exists. Each chunk is about a millisecond. */
-const DEFAULT_BUILDS_PER_FRAME = 32;
+/**
+ * GPU uploads per call. Generation runs off the main thread; this only bounds
+ * how many new geometries are created before the browser gets to paint.
+ * A parent-to-children swap is four meshes, and the six root faces fit too.
+ */
+const DEFAULT_BUILDS_PER_FRAME = 8;
 
-function chunkKey(request: ChunkRequest): string {
-  return `${request.face}:${request.lod}:${request.x}:${request.y}`;
-}
+/** New worker jobs per call. The selection is closest-first, and the pool reorders that batch by screen error. */
+const REQUESTS_PER_FRAME = 64;
 
 function isPromise(
   value: ChunkMeshPayload | Promise<ChunkMeshPayload>,
@@ -88,7 +94,10 @@ export function createChunkMeshManager(
 ): ChunkMeshManager {
   const buildsPerFrame = options?.buildsPerFrame ?? DEFAULT_BUILDS_PER_FRAME;
   const resident = new Map<string, Resident>();
+  const ready = new Map<string, ChunkMeshPayload>();
   const pending = new Set<string>();
+  const placeSphere = new Sphere();
+  const placeCenter = new Vector3();
   const litMaterial = new MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.86,
@@ -102,15 +111,15 @@ export function createChunkMeshManager(
   let totalGenerateMs = 0;
   let generated = 0;
 
-  function stats(selection: readonly ChunkRequest[]): ChunkMeshStats {
+  function stats(selection: readonly ChunkRequest[], shown: ReadonlySet<string>): ChunkMeshStats {
     let visibleCount = 0;
     let maxLod = 0;
     for (const chunk of selection) maxLod = Math.max(maxLod, chunk.lod);
-    for (const entry of resident.values()) {
-      if (entry.mesh.visible) visibleCount += 1;
+    for (const key of shown) {
+      if (resident.get(key)?.mesh.visible) visibleCount += 1;
     }
     return {
-      chunkCount: resident.size,
+      chunkCount: shown.size,
       visibleCount,
       maxLod,
       lastGenerateMs,
@@ -126,24 +135,24 @@ export function createChunkMeshManager(
   function clearResidents(): void {
     for (const entry of resident.values()) disposeMesh(entry.mesh);
     resident.clear();
+    ready.clear();
     pending.clear();
     generated = 0;
     totalGenerateMs = 0;
     lastGenerateMs = 0;
   }
 
-  function place(entry: Resident): void {
+  function place(entry: Resident, frustum: Frustum): void {
     if (!frame) return;
     const renderX = entry.origin.x - frame.cameraWorld.x;
     const renderY = entry.origin.y - frame.cameraWorld.y;
     const renderZ = entry.origin.z - frame.cameraWorld.z;
     entry.mesh.position.set(renderX, renderY, renderZ);
     entry.mesh.updateMatrixWorld();
-    const inFrustum = isSphereInFrustum(
-      frame.camera,
-      { x: renderX, y: renderY, z: renderZ },
-      entry.boundingRadius,
-    );
+    placeCenter.set(renderX, renderY, renderZ);
+    placeSphere.center.copy(placeCenter);
+    placeSphere.radius = entry.boundingRadius;
+    const inFrustum = frustum.intersectsSphere(placeSphere);
     const overHorizon = isBeyondHorizon(
       frame.cameraWorld,
       entry.origin,
@@ -153,11 +162,21 @@ export function createChunkMeshManager(
     entry.mesh.visible = inFrustum && !overHorizon;
   }
 
-  function commit(payload: ChunkMeshPayload, key: string, builtGeneration: number): void {
-    pending.delete(key);
+  function remember(payload: ChunkMeshPayload, key: string, builtGeneration: number): void {
+    // A newer planet generation may already be using this key. Leave its
+    // pending flag alone; the stale payload is discarded.
     if (builtGeneration !== generation || !frame) return;
-    const wanted = new Set(frame.selection.map((request) => chunkKey(request)));
-    if (!wanted.has(key) || resident.has(key)) return;
+    pending.delete(key);
+    if (resident.has(key)) return;
+    const stillWanted = frame.selection.some((request) => chunkMeshKey(request) === key);
+    if (!stillWanted) return;
+    ready.set(key, payload);
+  }
+
+  function upload(payload: ChunkMeshPayload): void {
+    const key = chunkMeshKey(payload.request);
+    ready.delete(key);
+    if (resident.has(key)) return;
     const geometry = new BufferGeometry();
     geometry.setAttribute("position", new BufferAttribute(payload.positions, 3));
     geometry.setAttribute("normal", new BufferAttribute(payload.normals, 3));
@@ -166,18 +185,26 @@ export function createChunkMeshManager(
     const mesh = new Mesh(geometry, payload.lit ? litMaterial : unlitMaterial);
     mesh.name = `chunk:${key}`;
     mesh.frustumCulled = false;
+    mesh.visible = false;
     parent.add(mesh);
-    const entry: Resident = {
+    resident.set(key, {
       key,
+      request: payload.request,
       mesh,
       origin: payload.origin,
       boundingRadius: payload.boundingRadius,
-    };
-    resident.set(key, entry);
+    });
     lastGenerateMs = payload.generateMs;
     totalGenerateMs += payload.generateMs;
     generated += 1;
-    place(entry);
+  }
+
+  function residentRequests(): ChunkRequest[] {
+    return [...resident.values()].map((entry) => entry.request);
+  }
+
+  function availableRequests(): ChunkRequest[] {
+    return [...residentRequests(), ...[...ready.values()].map((payload) => payload.request)];
   }
 
   return {
@@ -188,36 +215,66 @@ export function createChunkMeshManager(
         cacheKey = next.cacheKey;
         clearResidents();
       }
-      const wanted = new Set(next.selection.map((request) => chunkKey(request)));
-      for (const [key, entry] of resident) {
-        if (!wanted.has(key)) {
-          disposeMesh(entry.mesh);
-          resident.delete(key);
-        }
-      }
-      const missing = next.selection.filter((request) => {
-        const key = chunkKey(request);
-        return !resident.has(key) && !pending.has(key);
-      });
-      const budget = missing.length <= 8 ? missing.length : buildsPerFrame;
       const builtGeneration = generation;
-      for (const request of missing.slice(0, budget)) {
-        const key = chunkKey(request);
+      let requested = 0;
+      for (const request of next.selection) {
+        if (requested >= REQUESTS_PER_FRAME) break;
+        const key = chunkMeshKey(request);
+        if (resident.has(key) || ready.has(key) || pending.has(key)) continue;
+        requested += 1;
         pending.add(key);
         const result = source.buildChunk(request);
         if (isPromise(result)) {
           void result.then(
-            (payload) => commit(payload, key, builtGeneration),
+            (payload) => remember(payload, key, builtGeneration),
             () => {
-              pending.delete(key);
+              if (builtGeneration === generation) pending.delete(key);
             },
           );
         } else {
-          commit(result, key, builtGeneration);
+          remember(result, key, builtGeneration);
         }
       }
-      for (const entry of resident.values()) place(entry);
-      return stats(next.selection);
+
+      // Upload only the chunks the coverage set wants. A parent stays the
+      // coverage set until every replacement is ready, so a partial child
+      // batch is staged (hidden) across frames and swapped in one call.
+      const ideal = chunksToDisplay(next.selection, availableRequests());
+      const pendingUploads = ideal.filter((request) => {
+        const key = chunkMeshKey(request);
+        return !resident.has(key) && ready.has(key);
+      });
+      for (const request of pendingUploads.slice(0, buildsPerFrame)) {
+        const payload = ready.get(chunkMeshKey(request));
+        if (payload) upload(payload);
+      }
+
+      const draw = chunksToDisplay(next.selection, residentRequests());
+      const drawKeys = new Set(draw.map((request) => chunkMeshKey(request)));
+      const wanted = new Set(next.selection.map((request) => chunkMeshKey(request)));
+      const keep = new Set(drawKeys);
+      for (const entry of resident.values()) {
+        if (keep.has(entry.key) || !wanted.has(entry.key)) continue;
+        const waitingOnParent = draw.some(
+          (cover) => chunkCovers(cover, entry.request) && chunkMeshKey(cover) !== entry.key,
+        );
+        if (waitingOnParent) keep.add(entry.key);
+      }
+
+      const frustum = frame ? cameraFrustum(frame.camera) : null;
+      for (const [key, entry] of resident) {
+        if (!keep.has(key)) {
+          disposeMesh(entry.mesh);
+          resident.delete(key);
+          continue;
+        }
+        if (!drawKeys.has(key) || !frustum) {
+          entry.mesh.visible = false;
+          continue;
+        }
+        place(entry, frustum);
+      }
+      return stats(next.selection, drawKeys);
     },
     dispose(): void {
       generation += 1;

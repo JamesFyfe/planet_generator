@@ -1,4 +1,4 @@
-import { createPlanet, selectChunks } from "@planet/engine";
+import { createPlanet, selectChunkPlan } from "@planet/engine";
 import type { Planet } from "@planet/engine";
 import { createChunkMeshManager } from "@planet/renderer";
 import type { ChunkMeshManager } from "@planet/renderer";
@@ -70,6 +70,10 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
       if (managerRef.current === manager) managerRef.current = null;
     };
   }, [root, source]);
+
+  useEffect(() => {
+    return () => source.dispose();
+  }, [source]);
 
   useEffect(() => {
     const element = gl.domElement;
@@ -181,15 +185,20 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
 
     const manager = managerRef.current;
     if (!manager) return;
-    const selection = selectChunks({
+    const lodInput = {
       cameraPosition: cameraWorld,
       radius,
       fovY: (camera.fov * Math.PI) / 180,
       screenHeight: Math.max(1, size.height * gl.getPixelRatio()),
       relief: Math.abs(active.params.amplitude),
-    });
+    };
+    const selectStarted = performance.now();
+    const plan = selectChunkPlan(lodInput);
+    const retainStarted = performance.now();
+    source.retain(plan.chunks, lodInput, plan.scores);
+    const syncStarted = performance.now();
     const stats = manager.sync({
-      selection,
+      selection: plan.chunks,
       cameraWorld,
       camera,
       cacheKey: `${channelRef.current}:${JSON.stringify(active.params)}`,
@@ -197,6 +206,16 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
       relief: Math.abs(active.params.amplitude),
     });
     if (statsRef.current) statsRef.current.textContent = formatChunkStats(stats);
+    const finished = performance.now();
+    const perfHost = window as Window & {
+      __planetPerf?: { selectMs: number; retainMs: number; syncMs: number };
+    };
+    const previous = perfHost.__planetPerf;
+    perfHost.__planetPerf = {
+      selectMs: Math.max(previous?.selectMs ?? 0, retainStarted - selectStarted),
+      retainMs: Math.max(previous?.retainMs ?? 0, syncStarted - retainStarted),
+      syncMs: Math.max(previous?.syncMs ?? 0, finished - syncStarted),
+    };
   });
 
   return (

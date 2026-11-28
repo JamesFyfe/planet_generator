@@ -8,13 +8,15 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "perf": "node scripts/perf.mjs"
   },
   "dependencies": {
     "@planet/engine": "workspace:*",
     "@planet/renderer": "workspace:*",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
+    "comlink": "^4.4.2",
     "leva": "^0.10.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -27,6 +29,7 @@
     "@types/react-dom": "^19.3.0",
     "@types/three": "^0.187.0",
     "@vitejs/plugin-react": "^6.3.0",
+    "playwright": "^1.65.1",
     "typescript": "^5.9.3",
     "vite": "^8.4.0",
     "vitest": "^5.1.2"
