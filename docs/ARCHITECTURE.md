@@ -1,6 +1,6 @@
 # Architecture
 
-Current contracts for Planet Engine. Phase 2 adds the chunk quadtree, screen-space LOD selection, chunk meshes with a floating origin, and a worker pool for chunk generation. The feature-layer interface and the global bake are not contracts yet.
+Current contracts for Planet Engine. Phase 2 adds the chunk quadtree, screen-space LOD selection, chunk meshes with a floating origin, and a worker pool for chunk generation. Phase 6 adds the climate cubemap. The feature-layer interface is not a contract yet. Plate motion is not on this branch: crust is the continent mask until that bake is merged.
 
 ## Layout
 
@@ -38,7 +38,7 @@ Meters. Do not hardcode planet radius, sea level, or any other value that has a 
 
 `PLANET_PARAM_REGISTRY` in `@planet/engine` is the only slider list. Each entry has `key`, `label`, `min`, `max`, `default`, `step`, and `group`.
 
-`PlanetParams` is `version` plus every key in `PLANET_PARAM_REGISTRY`. `version` is `PLANET_PARAMS_VERSION` (`3`) and is not a slider. Version moved from 2 to 3 when the single fBm layer (`noiseScale`, `octaves`) was replaced by the layered terrain field. `defaultPlanetParams()` builds the object from the registry. `clampPlanetParam` enforces min and max. The explorer store writes through that clamp.
+`PlanetParams` is `version` plus every key in `PLANET_PARAM_REGISTRY`. `version` is `PLANET_PARAMS_VERSION` (`4`) and is not a slider. Version moved from 2 to 3 when the single fBm layer (`noiseScale`, `octaves`) was replaced by the layered terrain field, and from 3 to 4 when the climate sliders joined. `atmosphereDensity` and `axialTilt` use the atmosphere and motion groups so a later lighting pass can share those keys. Tilt is degrees and may be negative; mean annual temperature uses the absolute value. `defaultPlanetParams()` builds the object from the registry. `clampPlanetParam` enforces min and max. The explorer store writes through that clamp.
 
 The leva panel is generated from the registry (`controlsFromRegistry`), one folder per `group`. Do not hand-write a slider for a registered parameter. The debug-view dropdown, the preset menu, and the JSON buttons are not planet parameters.
 
@@ -64,6 +64,13 @@ The leva panel is generated from the registry (`controlsFromRegistry`), one fold
 | warpScale         | Warp       | 0.4 – 6, step 0.1             | 1.1     |
 | amplitude         | Surface    | 0 – 20_000 m, step 100        | 4_000   |
 | seaLevel          | Surface    | -10_000 – 10_000 m, step 100  | 0       |
+| atmosphereDensity | Atmosphere | 0 – 4, step 0.05              | 1       |
+| axialTilt         | Motion     | -90 – 90 °, step 0.1          | 23.4    |
+| starDistance      | Climate    | 0.4 – 2.5, step 0.01          | 1       |
+| temperatureOffset | Climate    | -40 – 40 °C, step 1           | 0       |
+| globalMoisture    | Climate    | 0 – 2, step 0.01              | 1       |
+| windStrength      | Climate    | 0 – 2, step 0.01              | 1       |
+| biomeSharpness    | Climate    | 0.25 – 8, step 0.05           | 2       |
 
 Layer scales are frequencies on the unit sphere. Octave counts are rounded to integers before sampling. Strengths are weights: the signed shelf, the ridged mountains, the hills, and the detail are divided by the sum of the strengths and then multiplied by `amplitude`, so height stays about [-amplitude, amplitude]. `coastBias` slides the continent mask; higher values flood more of the sphere. `mountainLandBias` keeps ridges inland when it is near 1. `warpStrength` is the domain-warp offset in unit-sphere coordinates; zero leaves the sample direction unchanged, and the warped point is projected back onto the sphere so the warp does not also rescale every frequency. `seaLevel` is meters in that same height space. Sea-relative height is `height - seaLevel`.
 
@@ -86,11 +93,17 @@ Fractal options are `octaves` (1–16, default 4), `lacunarity` (default 2), `ga
 
 ## Planet sample
 
-`createPlanet(params)` returns a `Planet`. `Planet.sample(dir)` returns `{ height, seaRelativeHeight }`.
+`createPlanet(params)` returns a `Planet`. `Planet.sample(dir)` returns height, sea-relative height, and the climate point: temperature (°C), moisture, rainfall, wind, ocean distance (meters), continentality, biome ids and weight, and material id.
 
 - `dir` is a 3D direction. It is normalized before sampling, so the vector length does not matter. A zero vector throws.
-- Height is the layered terrain field at that unit direction: domain warp, a continent mask, ridged mountains gated by that mask, hills, and fine detail. The sample never uses latitude/longitude, so there is no seam at the antimeridian and no pinch at the poles. Amplitude is applied once, as the meter scale of the normalized layer sum.
-- `Planet.buildChunk(request)` samples that same field. Temperature, moisture, and biome are not on the sample yet.
+- Height is the layered terrain field at that unit direction: domain warp, a continent mask, ridged mountains gated by that mask, hills, and fine detail. The sample never uses latitude/longitude for height, so there is no seam at the antimeridian and no pinch at the poles. Amplitude is applied once, as the meter scale of the normalized layer sum. Temperature does use latitude, measured from +Y.
+- `Planet.buildChunk(request)` samples that same height, then classifies each vertex with its own slope and altitude. Skirt vertices copy the edge they hang from.
+
+## Climate bake
+
+The first sample for a parameter set fills a 32×32 cubemap on each cube face. The cache holds four sets and is a pure function of the parameters. Cells store sea-level temperature, moisture, rainfall, a unit wind vector, ocean distance, continentality, crust, boundary, volcanic intensity, coarse slope, and sea-relative height.
+
+Temperature is a mean annual value: latitude insolation that spreads toward the poles as axial tilt grows, star distance as an inverse-square insolation, a greenhouse offset that is zero at atmosphere density 1, the temperature offset, and a lapse of 0.0065 °C/m above sea level. Wind is three cells (trades, westerlies, polar easterlies). Moisture evaporates from ocean cells and is advected upwind-to-downwind; climbs rain out and the lee side keeps the remainder. Ocean distance is a breadth-first hop count times the cell spacing, and continentality dries the interior. Biome rules live in `packages/engine/src/data/biomes.ts`. Material rules live in `materialIndexFromPlate` and read crust plus boundary and volcanic intensity. Until the plate bake is merged, crust is the continent mask and boundary and volcanic are zero, so the live field is basalt, granite, and sedimentary.
 
 ## Cube sphere
 
@@ -106,12 +119,18 @@ Fractal options are `octaves` (1–16, default 4), `lacunarity` (default 2), `ga
 
 `DEBUG_CHANNEL_REGISTRY` is the list of color outputs. `isDebugChannelId` guards the dropdown.
 
-| id      | label   | coloring                                                 | lit |
-| ------- | ------- | -------------------------------------------------------- | --- |
-| terrain | Terrain | ocean, shore, land, high ground from sea-relative height | yes |
-| height  | Height  | sea-relative height ramp                                 | no  |
-| slope   | Slope   | slope-angle ramp                                         | no  |
-| lod     | LOD     | one flat color per chunk level                           | no  |
+| id          | label       | coloring                                      | lit |
+| ----------- | ----------- | --------------------------------------------- | --- |
+| terrain     | Terrain     | lit shader blends biome and material palettes | yes |
+| height      | Height      | sea-relative height ramp                      | no  |
+| slope       | Slope       | slope-angle ramp                              | no  |
+| lod         | LOD         | one flat color per chunk level                | no  |
+| temperature | Temperature | fixed °C ramp                                 | no  |
+| moisture    | Moisture    | dry to wet                                    | no  |
+| wind        | Wind        | prevailing direction as a color               | no  |
+| rainfall    | Rainfall    | orographic drop                               | no  |
+| biome       | Biome       | palette from `data/biomes.ts`                 | no  |
+| material    | Material    | palette from `data/materials.ts`              | no  |
 
 The shore band is the smaller of a radius fraction and a slice of the amplitude, so the coastline stays visible from orbit without swallowing the lowlands. Data channels are unlit so lighting does not hide the ramp.
 
@@ -123,13 +142,14 @@ One quadtree per cube face. `ChunkRequest` is `{ face, lod, x, y }`. Face order 
 
 - `positions`, `normals`: chunk-local meters and unit normals. The center grid vertex is the origin, so positions stay small at high LOD.
 - `height`, `seaRelativeHeight`, `slope`: one value per vertex, including skirt vertices copied from the edge they hang from.
+- `biomeId`, `biomeSecondary`, `biomeWeight`, `materialId`, plus temperature, moisture, rainfall, and wind. The worker transfers the biome and material attributes. The lit shader blends the two biome colors by weight, tints with the material palette, then mixes rock by slope and snow by altitude. Palettes are data, passed in by the explorer. Debug channels stay unlit vertex colors.
 - `indices`, `origin` (planet-centered meters, float64), and `boundingRadius`.
 
 Skirts are a ring of vertices pulled toward the planet center. Their depth scales with the chunk edge and with relief times a strength-weighted layer frequency (detail is down-weighted so its high frequency does not always hit the cap). Depth is capped at a quarter of the edge so a steep gradient cannot pull the skirt through the planet.
 
 `selectChunks` returns the leaves that should exist this frame, nearest camera first. `selectChunkPlan` returns those leaves and the screen-error scores already computed for them. A chunk splits while one grid step projects to more than `DEFAULT_PIXEL_ERROR` (4) pixels and the patch can meet the view cone (the tighter of the field of view and the horizon). Chunks entirely outside that cone stay coarse, so the cover is still complete and the budget is spent on the visible surface. Edge neighbors, including across cube faces, stay within `MAX_LOD_GAP` (1). The distance test uses the mean sphere of `radius`. `relief` is accepted and checked, and is not added to every bounding sphere: doing that forced a max-LOD disk the size of the amplitude. `chunkLodScore` reports that same screen-space error and distance so the generator can rank a queue without a second definition of the split.
 
-Generation stays behind `ChunkMeshSource`. `createPlanetChunkSource` keeps an LRU of payloads (1024) and a pool of module workers, one fewer than `navigator.hardwareConcurrency`, clamped to 1–4. Each worker is `new Worker(new URL("./chunk.worker.ts", import.meta.url), { type: "module" })`, wrapped with Comlink. The worker builds the chunk, colors it, and transfers the position, normal, color, index, sea-relative height, and slope buffers. The lit terrain material ignores vertex color: a shader mixes ocean, shore, land, and snow from sea-relative height, then replaces steep land with rock, and multiplies a triplanar placeholder texture. `sampleTriplanar` is the hook later phases can point at real materials. Debug channels stay unlit vertex colors. The mesh matrix is camera-relative. The shader adds `uCameraWorld` back before `sampleTriplanar`, so the grain stays on the planet and a shared edge still reconstructs the same point. The queue runs the largest screen error first and the closer patch when those errors match. `retain(selection, view)` drops queued jobs that left the selection; an in-flight job finishes and may fill the cache, but its promise rejects so the mesh is not uploaded. A params or debug-channel change clears the cache and cancels outstanding jobs.
+Generation stays behind `ChunkMeshSource`. `createPlanetChunkSource` keeps an LRU of payloads (1024) and a pool of module workers, one fewer than `navigator.hardwareConcurrency`, clamped to 1–4. Each worker is `new Worker(new URL("./chunk.worker.ts", import.meta.url), { type: "module" })`, wrapped with Comlink. The worker builds the chunk, colors it, and transfers the position, normal, color, index, sea-relative height, slope, biome, and material buffers. The lit terrain material ignores vertex color. Ocean still comes from sea-relative height. Land blends the biome palette with the material palette, then slope and altitude. `sampleTriplanar` remains the grain hook later phases can point at real materials. Debug channels stay unlit vertex colors. The mesh matrix is camera-relative. The shader adds `uCameraWorld` back before `sampleTriplanar`, so the grain stays on the planet and a shared edge still reconstructs the same point. The queue runs the largest screen error first and the closer patch when those errors match. `retain(selection, view)` drops queued jobs that left the selection; an in-flight job finishes and may fill the cache, but its promise rejects so the mesh is not uploaded. A params or debug-channel change clears the cache and cancels outstanding jobs.
 
 The manager asks for up to 64 missing selected chunks per call, closest first, then uploads at most `buildsPerFrame` geometries per call (default 8). It does not drop a mesh the moment it leaves the selection. The draw set is the selected leaves that are ready, except a coarser ready ancestor stays up until every selected leaf under it is ready, and resident descendants stay up until a coarser selection is uploaded. The swap happens in one call, so the parent does not disappear while its children are still building. A `cacheKey` change throws the meshes and the payload cache away. Frustum and horizon tests set `mesh.visible`. The horizon occluder is `max(radius * 0.5, radius - relief)` so a mountain can still peek over the limb. Chunk vertices are not transformed by a large planet matrix: each mesh sits at `origin - camera`, both subtracted in float64, and the camera stays at the scene origin.
 
@@ -142,7 +162,7 @@ Units are meters. The Phase 1 helper mesh is still planet-centered and divided b
 Do not invent these until the phase that needs them, and do not change them later without a note in `docs/PROGRESS.md`:
 
 - feature-layer interface
-- global bake and worker protocol
+- tectonic plate bake (the climate cubemap is the stand-in global bake until that merge)
 
 `ChunkMeshSource.buildChunk` may return a payload or a promise of one. Workers are constructed as `new Worker(new URL("./chunk.worker.ts", import.meta.url), { type: "module" })` so Vite bundles them. Do not use `SharedArrayBuffer` unless a later phase needs it. If it is added, COOP/COEP headers go in `vercel.json` at that point.
 

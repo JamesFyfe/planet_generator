@@ -21,6 +21,8 @@ export {
   selectChunks,
 } from "./lod";
 export { colorChunk } from "./chunkColor";
+export { BIOME_COUNT, biomePaletteRgba } from "./data/biomes";
+export { MATERIAL_COUNT, materialPaletteRgba } from "./data/materials";
 export {
   decodePlanetQuery,
   encodePlanetQuery,

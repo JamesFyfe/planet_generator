@@ -1,4 +1,11 @@
-import { createPlanet, selectChunkPlan } from "@planet/engine";
+import {
+  BIOME_COUNT,
+  MATERIAL_COUNT,
+  biomePaletteRgba,
+  createPlanet,
+  materialPaletteRgba,
+  selectChunkPlan,
+} from "@planet/engine";
 import type { Planet } from "@planet/engine";
 import { createChunkMeshManager } from "@planet/renderer";
 import type { ChunkMeshManager } from "@planet/renderer";
@@ -63,7 +70,12 @@ export function PlanetScene({ statsRef }: { statsRef: RefObject<HTMLPreElement |
   );
 
   useEffect(() => {
-    const manager = createChunkMeshManager(root, source);
+    const manager = createChunkMeshManager(root, source, {
+      biomePalette: biomePaletteRgba(),
+      materialPalette: materialPaletteRgba(),
+      biomeCount: BIOME_COUNT,
+      materialCount: MATERIAL_COUNT,
+    });
     managerRef.current = manager;
     return () => {
       manager.dispose();

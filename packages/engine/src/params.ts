@@ -1,4 +1,4 @@
-export const PLANET_PARAMS_VERSION = 3;
+export const PLANET_PARAMS_VERSION = 4;
 
 export interface ParamMeta {
   key: string;
@@ -18,6 +18,8 @@ export interface ParamMeta {
  *
  * Version 3 replaces the single noise layer (`noiseScale`, `octaves`) with
  * one scale, octave count, and strength per terrain layer.
+ * Version 4 adds the climate sliders. Star distance is relative to the
+ * default insolation (1). Tilt is degrees. Temperatures elsewhere are °C.
  */
 export const PLANET_PARAM_REGISTRY = [
   {
@@ -199,6 +201,69 @@ export const PLANET_PARAM_REGISTRY = [
     step: 100,
     default: 0,
     group: "Surface",
+  },
+  {
+    key: "atmosphereDensity",
+    label: "Density",
+    min: 0,
+    max: 4,
+    step: 0.05,
+    default: 1,
+    group: "Atmosphere",
+  },
+  {
+    key: "axialTilt",
+    label: "Axial tilt (°)",
+    min: -90,
+    max: 90,
+    step: 0.1,
+    default: 23.4,
+    group: "Motion",
+  },
+  {
+    key: "starDistance",
+    label: "Star distance",
+    min: 0.4,
+    max: 2.5,
+    step: 0.01,
+    default: 1,
+    group: "Climate",
+  },
+  {
+    key: "temperatureOffset",
+    label: "Temperature offset (°C)",
+    min: -40,
+    max: 40,
+    step: 1,
+    default: 0,
+    group: "Climate",
+  },
+  {
+    key: "globalMoisture",
+    label: "Moisture",
+    min: 0,
+    max: 2,
+    step: 0.01,
+    default: 1,
+    group: "Climate",
+  },
+  {
+    key: "windStrength",
+    label: "Wind",
+    min: 0,
+    max: 2,
+    step: 0.01,
+    default: 1,
+    group: "Climate",
+  },
+  {
+    key: "biomeSharpness",
+    label: "Biome sharpness",
+    min: 0.25,
+    max: 8,
+    step: 0.05,
+    default: 2,
+    group: "Climate",
   },
 ] as const satisfies readonly ParamMeta[];
 

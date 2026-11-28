@@ -101,3 +101,15 @@ Screenshots at default params except the seed: `docs/screenshots/phase-3/seed-1-
 **Known issues.** Float32 error on the restored position is an ulp of the camera distance, well under the 90 m tile. The other phase 3 issues are unchanged.
 
 **Next.** Phase 4: atmosphere, water, and lighting.
+
+## 2026-11-28 — Phase 6 climate and biomes
+
+**Changed.** `PlanetParams` is version 4. Mean annual temperature uses latitude relative to axial tilt, a 0.0065 °C/m lapse above sea level, inverse-square star distance, and a greenhouse offset from atmosphere density. A 32×32 cubemap per face advects moisture with a three-cell wind, rains out on windward climbs, and stores ocean distance and continentality. Biome rules and palettes are in `packages/engine/src/data/biomes.ts`. Material ids come from crust, boundary, and volcanic intensity. The plate bake is not merged, so crust is the continent mask and boundary and volcanic stay clear: the live materials are basalt, granite, and sedimentary. Chunks carry biome ids, a blend weight, and a material id. The lit shader blends those palettes with slope and altitude. Debug channels: temperature, moisture, wind, rainfall, biome, material. `atmosphereDensity` and `axialTilt` use the Atmosphere and Motion groups so they can be shared with lighting. The other climate sliders are star distance, temperature offset, moisture, wind, and biome sharpness.
+
+Screenshots in `docs/screenshots/phase-6/`.
+
+**Unfinished.** No rivers, weather, or feature stamps. Volcanic rock does not appear until plate boundaries and hotspots are on the bake. The climate cubemap is separate from the tectonic cubemap that phase 5 is adding; appending these channels onto that bake is the follow-up. The first sample of a parameter set bakes on the calling thread, including the camera's first sample after a slider change.
+
+**Known issues.** Face-local bilinear samples do not blend across a cube edge, so a climate seam one cell wide can show. Equatorial peaks at the default 4 km relief stay alpine rather than ice; mid-latitude high ground does cross the ice threshold. Skirt vertices copy the edge biome, so a skirt can carry the neighbor's class.
+
+**Next.** When the plate bake lands, fill crust, boundary, and hotspot from those channels and run this advection on that height field. Phase 7 is features.
